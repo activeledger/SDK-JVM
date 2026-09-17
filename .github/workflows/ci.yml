@@ -1,0 +1,26 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        # 11 is the target; 17 is what compiles it. Both are built because a
+        # library that only works on its build JDK is a library that breaks
+        # for half its consumers.
+        java: [11, 17, 21]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ matrix.java }}
+      - uses: gradle/actions/setup-gradle@v4
+      # Includes the Android API-26 signature check, so a JDK API absent from
+      # the floor fails here rather than on a user's phone.
+      - run: ./gradlew build
