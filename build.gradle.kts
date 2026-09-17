@@ -32,12 +32,20 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.9.0")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
 
+    // Reading ledger RESPONSES only. Nothing that produces signed bytes
+    // goes near it - those are written by CanonicalJson, by hand, because
+    // they must match JSON.stringify exactly. Parsing a reply has no such
+    // constraint, and hand-rolling a parser for it would be worse code for
+    // no benefit. `implementation` rather than `api` so it stays off the
+    // consumer's compile classpath.
+    implementation("com.google.code.gson:gson:2.11.0")
+
     testImplementation(kotlin("test"))
+    // The Java facade is tested from real Java sources, which need JUnit's
+    // own annotations rather than kotlin.test's aliases.
+    testImplementation("org.junit.jupiter:junit-jupiter:5.11.0")
     testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
-    // Test-only. Reading the published vector file is exactly what a JSON
-    // library is for; the rule is that nothing writes the SIGNED bytes with
-    // one, since those must match JSON.stringify exactly.
-    testImplementation("com.google.code.gson:gson:2.11.0")
+
 
     // Android API 26 signature. minSdk 26 because the SDK handles ISO-8601
     // instants and java.time is API 26+; the alternative is core library
