@@ -102,14 +102,25 @@ public class Example {
 
 Blocking calls, listener-based events. Same implementation underneath.
 
-## Reading streams
+## Reading state
 
-Stream reads go to the **storage** endpoint, not the node — a node answers `Forbidden`. Storage is a separate service on its own port and is usually not publicly exposed:
+There is no separate read API, and no storage URL. A node's storage service
+listens only on the node's own host, so it is not something a client can
+reach — the JavaScript SDK does not touch it either.
+
+State is read through a transaction. Name the streams in `$r`, and have the
+contract hand values back with `returnToRemote`:
 
 ```kotlin
-val ledger = Activeledger("http://localhost:5260", storageUrl = "http://localhost:5259")
-val meta = ledger.streams.meta(identity.streamId)   // authorities, umid, origin
-val state = ledger.streams.state(identity.streamId) // contract-controlled state
+val tx = Transaction.builder()
+    .namespace("mynamespace")
+    .contract("mycontract")
+    .input(identity.streamId, identity.keyPair)
+    .readonly("target", someStreamId)   // arrives as $r
+    .build()
+
+val response = ledger.connection.submit(tx)
+response.responses().forEach { println(it) }  // whatever returnToRemote sent
 ```
 
 ## Things that will bite you

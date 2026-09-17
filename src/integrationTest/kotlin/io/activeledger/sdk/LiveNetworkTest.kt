@@ -41,8 +41,23 @@ class LiveNetworkTest {
     private val storage: List<String> =
         System.getenv("AL_STORAGE")?.split(",")?.map { it.trim() }?.filter { it.isNotEmpty() } ?: emptyList()
 
-    private fun ledger(index: Int = 0) =
-        Activeledger(nodes[index], storage.getOrNull(index))
+    private fun ledger(index: Int = 0) = Activeledger(nodes[index])
+
+    /**
+     * Reads a document straight from a node's storage service.
+     *
+     * Deliberately here in the test and NOT in the SDK. Storage listens only
+     * on the node's own host, so it is not something a client can reach - the
+     * SDK reads state through a transaction's $r instead. This suite runs
+     * against a local harness, where storage is reachable by definition, and
+     * uses it to assert what the ledger actually recorded rather than what a
+     * contract chose to hand back.
+     */
+    private fun storageRead(index: Int, id: String): String {
+        val url = storage[index].trimEnd('/') + "/activeledger/" +
+            java.net.URLEncoder.encode(id, "UTF-8")
+        java.net.URL(url).openStream().use { return it.readBytes().toString(Charsets.UTF_8) }
+    }
 
     private fun requireNetwork() {
         assumeTrue(nodes.isNotEmpty(), "AL_NODES not set - start 'npm run test:network:serve' in the ledger repo")
@@ -88,7 +103,7 @@ class LiveNetworkTest {
 
         // The meta is what the engine will verify against later, so the type
         // string and key length landing there correctly is the whole point.
-        val meta = JsonParser.parseString(ledger().streams.meta(identity.streamId)).asJsonObject
+        val meta = JsonParser.parseString(storageRead(0, "${identity.streamId}:stream")).asJsonObject
         val authority = meta.getAsJsonArray("authorities").first().asJsonObject
         assertEquals(type.wire, authority.get("type").asString, "authority type on the ledger")
         assertEquals(
@@ -141,7 +156,7 @@ class LiveNetworkTest {
         var seen: List<Boolean>
         while (true) {
             seen = nodes.indices.map { i ->
-                runCatching { ledger(i).streams.meta(identity.streamId).contains("falcon-512") }
+                runCatching { storageRead(i, "${identity.streamId}:stream").contains("falcon-512") }
                     .getOrDefault(false)
             }
             if (seen.all { it } || System.currentTimeMillis() > deadline) break

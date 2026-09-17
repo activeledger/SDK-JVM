@@ -42,9 +42,15 @@ class ActiveledgerClient(baseUrl: String) : AutoCloseable {
     fun submit(transaction: Transaction): LedgerResponse =
         runBlocking { ledger.connection.submit(transaction) }
 
-    fun streamState(streamId: String): String = runBlocking { ledger.streams.state(streamId) }
-
-    fun streamMeta(streamId: String): String = runBlocking { ledger.streams.meta(streamId) }
+    /**
+     * Submits a pre-built envelope as raw JSON.
+     *
+     * There is no stream-read method here. State is read through a
+     * transaction: name the streams in `$r` via Transaction.Builder.readonly
+     * and have the contract return values with returnToRemote, which arrive
+     * in LedgerResponse.responses.
+     */
+    fun submitRaw(json: String): LedgerResponse = runBlocking { ledger.connection.submitRaw(json) }
 
     /**
      * Subscribes to events, delivering them to [listener].

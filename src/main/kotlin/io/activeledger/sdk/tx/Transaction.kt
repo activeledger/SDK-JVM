@@ -86,6 +86,7 @@ class Transaction internal constructor(
         private var entry: String? = null
         private val inputs = JsonObject()
         private val outputs = JsonObject()
+        private val readonly = JsonObject()
         private val signers = LinkedHashMap<String, KeyPair>()
 
         fun namespace(value: String): Builder = apply { namespace = value }
@@ -104,6 +105,21 @@ class Transaction internal constructor(
             outputs.put(streamId, toJsonObject(payload))
         }
 
+        /**
+         * Adds a stream to `$r`, the read-only set.
+         *
+         * This is how state is read from Activeledger: the contract receives
+         * the named streams, and hands values back with returnToRemote, which
+         * arrive in LedgerResponse.responses. There is no separate read API -
+         * a node's storage service only listens locally, so reading is a
+         * transaction like anything else.
+         *
+         * @param label the name the contract will look the stream up by
+         */
+        fun readonly(label: String, streamId: String): Builder = apply {
+            readonly.put(label, streamId)
+        }
+
         fun build(): Transaction {
             val ns = namespace ?: throw IllegalStateException("namespace is required")
             val con = contract ?: throw IllegalStateException("contract is required")
@@ -113,6 +129,7 @@ class Transaction internal constructor(
             entry?.let { body.put("\$entry", it) }
             body.put("\$namespace", ns).put("\$contract", con).put("\$i", inputs)
             if (outputs.keys.isNotEmpty()) body.put("\$o", outputs)
+            if (readonly.keys.isNotEmpty()) body.put("\$r", readonly)
 
             val sigs = signers.mapValues { (_, key) -> sign(key, body) }
             return Transaction(body, sigs, selfSign = false)
