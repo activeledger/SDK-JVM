@@ -120,3 +120,22 @@ publishing {
         }
     }
 }
+
+// Integration tests run against a real 4-node network served by the ledger
+// repo's `npm run test:network:serve`. Deliberately outside `check`: the
+// unit suite must stay runnable with no ledger anywhere.
+sourceSets {
+    create("integrationTest") {
+        compileClasspath += sourceSets.main.get().output + configurations.testRuntimeClasspath.get()
+        runtimeClasspath += output + compileClasspath
+    }
+}
+
+tasks.register<Test>("integrationTest") {
+    description = "Runs against a live Activeledger network (set AL_NODES)"
+    group = "verification"
+    testClassesDirs = sourceSets["integrationTest"].output.classesDirs
+    classpath = sourceSets["integrationTest"].runtimeClasspath
+    useJUnitPlatform()
+    testLogging { events("passed", "skipped", "failed") }
+}

@@ -61,6 +61,16 @@ class Connection @JvmOverloads constructor(
     suspend fun submit(transaction: Transaction): LedgerResponse = post("/", transaction.toJson())
 
     /**
+     * Submits a pre-built envelope as raw JSON.
+     *
+     * For an envelope built elsewhere, and for testing rejection paths - a
+     * tampered body cannot be expressed through [submit], because the
+     * builder would re-sign it and produce a valid transaction instead of
+     * the invalid one under test.
+     */
+    suspend fun submitRaw(json: String): LedgerResponse = post("/", json)
+
+    /**
      * Onboards a new identity and returns its stream id.
      *
      * Throws if the ledger rejected it, rather than returning an object whose
@@ -90,7 +100,7 @@ class Connection @JvmOverloads constructor(
     }
 
     internal fun url(path: String): String = baseUrl.trimEnd('/') + path
-    internal fun httpClient(): OkHttpClient = client
+    fun httpClient(): OkHttpClient = client
 
     companion object {
         private fun defaultClient(): OkHttpClient = OkHttpClient.Builder()
