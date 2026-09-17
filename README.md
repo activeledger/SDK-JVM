@@ -10,7 +10,7 @@ One artefact serves Kotlin, Java and Android. Replaces `SDK-Kotlin`, `SDK-Java` 
 
 ```kotlin
 dependencies {
-    implementation("io.github.activeledger:activeledger-sdk:0.1.0")
+    implementation("io.github.activeledger:activeledger-sdk:0.1.1")
 }
 ```
 
