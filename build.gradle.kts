@@ -34,6 +34,10 @@ dependencies {
 
     testImplementation(kotlin("test"))
     testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
+    // Test-only. Reading the published vector file is exactly what a JSON
+    // library is for; the rule is that nothing writes the SIGNED bytes with
+    // one, since those must match JSON.stringify exactly.
+    testImplementation("com.google.code.gson:gson:2.11.0")
 
     // Android API 26 signature. minSdk 26 because the SDK handles ISO-8601
     // instants and java.time is API 26+; the alternative is core library
