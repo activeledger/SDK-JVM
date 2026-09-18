@@ -33,7 +33,13 @@ class VectorConformanceTest {
 
     private val vectors: List<Vector> by lazy {
         val json = javaClass.getResourceAsStream("/pq-vectors.json")!!.bufferedReader().readText()
-        JsonParser.parseString(json).asJsonObject.getAsJsonArray("vectors").map {
+        JsonParser.parseString(json).asJsonObject.getAsJsonArray("vectors")
+            // Post-quantum only. The same file now carries secp256k1, whose
+            // key encoding and signature format differ in every respect;
+            // Secp256k1Test covers those. Loading them here would fail this
+            // class's length assertions.
+            .filter { it.asJsonObject.get("type").asString in setOf("ml-dsa-65", "falcon-512") }
+            .map {
             val v = it.asJsonObject
             Vector(
                 type = KeyType.fromWire(v.get("type").asString),

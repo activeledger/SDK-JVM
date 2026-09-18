@@ -38,7 +38,11 @@ class BcApiProbeTest {
 
     private val vectors: List<Vector> by lazy {
         val json = javaClass.getResourceAsStream("/pq-vectors.json")!!.bufferedReader().readText()
-        JsonParser.parseString(json).asJsonObject.getAsJsonArray("vectors").map {
+        JsonParser.parseString(json).asJsonObject.getAsJsonArray("vectors")
+            // Post-quantum only: this probe base64-decodes every key, and
+            // secp256k1's are hex.
+            .filter { it.asJsonObject.get("type").asString in setOf("ml-dsa-65", "falcon-512") }
+            .map {
             val v = it.asJsonObject
             Vector(
                 type = v.get("type").asString,

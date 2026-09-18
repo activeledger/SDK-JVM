@@ -22,10 +22,40 @@ Android: `minSdk 26`. The bytecode is checked against the Android 26 API surface
 | --- | --- | --- | --- |
 | ML-DSA-65 | `ml-dsa-65` | 1952 bytes | 3309 bytes |
 | Falcon-512 | `falcon-512` | 897 bytes | 649-662 bytes, variable |
+| secp256k1 | `secp256k1` | 33 or 65 bytes | ~70-72 bytes, variable |
 | secp256k1 | `secp256k1` | 65 bytes | ~70-72 bytes DER |
 | RSA | `rsa` | — | — |
 
 Post-quantum keys are base64 of raw algorithm bytes. Falcon signature length **varies** — nothing may assume it fixed.
+
+**secp256k1 is encoded completely differently**, and reusing the base64 path
+for it produces material the ledger rejects as 1220 "Signature Incorrect"
+while saying nothing else:
+
+- **Keys are `0x`-prefixed hex, not base64.** The prefix is required rather
+  than tolerated, because hex without it can decode as base64 into
+  plausible-looking bytes of the wrong length.
+- **Public keys have two valid lengths** — 33 compressed and 65 uncompressed.
+  The ledger accepts both; `KeyPair.generate` produces compressed, and
+  `KeyPair.generateSecp256k1(compressed = false)` the other.
+- **Private scalars are left-padded to 32 bytes.** A leading zero byte occurs
+  about once in 400 keys, and an unpadded key is a different value.
+- **Signatures are SHA-256 → ECDSA → DER**, and DER length varies.
+
+**Signing is deterministic (RFC 6979) and always low-S.** Emitting low-S is
+not for the ledger, which accepts either; it is for everything else, because
+`@noble/curves` rejects high-S unless told not to and libsecp256k1 rejects it
+outright. Verification deliberately does **not** enforce low-S, because the
+ledger verifies through OpenSSL and produces high-S freely — rejecting those
+would be the same bug in the opposite direction.
+
+Because signing is deterministic, this SDK's secp256k1 signatures are
+byte-identical to `@noble/curves` for the same key and message, and the test
+suite asserts exactly that against published reference bytes.
+
+Use secp256k1 when you do not need post-quantum guarantees: it is roughly
+**22x smaller** per transaction, works with hardware wallets and HSMs, and is
+the only way to sign for an identity created before post-quantum support.
 
 ## Kotlin
 

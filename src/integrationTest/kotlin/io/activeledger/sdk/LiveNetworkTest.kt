@@ -96,6 +96,51 @@ class LiveNetworkTest {
         onboardAndCheck(KeyType.FALCON_512, expectedPublicBytes = 897)
     }
 
+    @Test
+    fun `secp256k1 compressed identity onboards and is recorded correctly`() = runBlocking {
+        requireNetwork()
+        onboardAndCheckSecp(compressed = true, expectedChars = 68)
+    }
+
+    /**
+     * The ledger accepts both public key forms and tells them apart by a
+     * length heuristic, so onboarding only ever with the compressed form
+     * would leave the other path unproven.
+     */
+    @Test
+    fun `secp256k1 uncompressed identity onboards and is recorded correctly`() = runBlocking {
+        requireNetwork()
+        onboardAndCheckSecp(compressed = false, expectedChars = 132)
+    }
+
+    private suspend fun onboardAndCheckSecp(compressed: Boolean, expectedChars: Int) {
+        val connection = ledger().connection
+        val key = KeyPair.generateSecp256k1(compressed)
+        val identity = connection.onboard(key)
+        assertTrue(identity.streamId.isNotEmpty(), "onboarding returned no stream id")
+
+        val meta = JsonParser.parseString(storageRead(0, "${identity.streamId}:stream")).asJsonObject
+        val authority = meta.getAsJsonArray("authorities").first().asJsonObject
+        val stored = authority.get("public").asString
+
+        assertEquals("secp256k1", authority.get("type").asString, "authority type on the ledger")
+
+        // Stored as 0x-prefixed hex, NOT base64. If this ever comes back
+        // base64 the SDK has encoded it the post-quantum way, and every later
+        // signature fails as 1220.
+        assertTrue(stored.startsWith("0x"), "the ledger stored '$stored', which is not 0x hex")
+        assertEquals(expectedChars, stored.length, "public key length on the ledger")
+        assertEquals(key.exportPublic(), stored, "the ledger stored a different key")
+    }
+
+    @Test
+    fun `a secp256k1 signed transaction is accepted`() = runBlocking {
+        requireNetwork()
+        val connection = ledger().connection
+        val identity = connection.onboard(KeyPair.generate(KeyType.SECP256K1))
+        registerNamespace(connection, identity, namespaceFor(KeyType.SECP256K1))
+    }
+
     private suspend fun onboardAndCheck(type: KeyType, expectedPublicBytes: Int) {
         val connection = ledger().connection
         val identity = connection.onboard(KeyPair.generate(type))
