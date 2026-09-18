@@ -41,14 +41,24 @@ class KeyPair private constructor(
     private val privateBytes: ByteArray?,
 ) {
 
-    /** Base64 of the raw public key bytes, as the ledger expects them. */
-    fun exportPublic(): String = Base64.getEncoder().encodeToString(publicBytes)
+    /**
+     * The public key exactly as the ledger stores it.
+     *
+     * Base64 for the post-quantum schemes, `0x`-prefixed hex for secp256k1.
+     * The encoding is not a caller's choice: the ledger compares these
+     * strings, and a secp256k1 key written as base64 is rejected as 1220.
+     */
+    fun exportPublic(): String = encode(publicBytes)
 
-    /** Base64 of the raw private key bytes. Throws if this is verify-only. */
+    /** The private key, in the same encoding. Throws if this is verify-only. */
     fun exportPrivate(): String =
-        Base64.getEncoder().encodeToString(
+        encode(
             privateBytes ?: throw IllegalStateException("This key pair has no private key - it was created for verification only")
         )
+
+    private fun encode(bytes: ByteArray): String =
+        if (type == KeyType.SECP256K1) Secp256k1.toHex(bytes)
+        else Base64.getEncoder().encodeToString(bytes)
 
     val canSign: Boolean get() = privateBytes != null
 
@@ -58,6 +68,7 @@ class KeyPair private constructor(
         return when (type) {
             KeyType.ML_DSA_65 -> signMlDsa(message, prv)
             KeyType.FALCON_512 -> signFalcon(message, prv)
+            KeyType.SECP256K1 -> Secp256k1.sign(message, prv)
             else -> throw UnsupportedOperationException("${type.wire} signing is not implemented yet")
         }
     }
@@ -91,6 +102,7 @@ class KeyPair private constructor(
                     verifySignature(message, signature)
                 }
             }
+            KeyType.SECP256K1 -> Secp256k1.verify(message, signature, publicBytes)
             else -> throw UnsupportedOperationException("${type.wire} verification is not implemented yet")
         }
     } catch (_: UnsupportedOperationException) {
@@ -135,7 +147,11 @@ class KeyPair private constructor(
 
         /** Raw byte lengths the ledger expects, per type. */
         private val PUBLIC_BYTES = mapOf(KeyType.ML_DSA_65 to 1952, KeyType.FALCON_512 to 897)
-        private val PRIVATE_BYTES = mapOf(KeyType.ML_DSA_65 to 4032, KeyType.FALCON_512 to 1281)
+        private val PRIVATE_BYTES = mapOf(
+            KeyType.ML_DSA_65 to 4032,
+            KeyType.FALCON_512 to 1281,
+            KeyType.SECP256K1 to Secp256k1.PRIVATE_BYTES,
+        )
 
         @JvmStatic
         fun generate(type: KeyType): KeyPair = when (type) {
@@ -161,14 +177,15 @@ class KeyPair private constructor(
                     PqKeyCodec.exportFalconPrivate((pair.private as FalconPrivateKeyParameters).encoded),
                 )
             }
+            KeyType.SECP256K1 -> generateSecp256k1(compressed = true)
             else -> throw UnsupportedOperationException("${type.wire} generation is not implemented yet")
         }
 
         /** A verify-only key pair. */
         @JvmStatic
-        fun fromPublic(type: KeyType, publicKeyBase64: String): KeyPair {
-            val pub = decode(publicKeyBase64, "public")
-            checkLength(type, pub, PUBLIC_BYTES[type], "public")
+        fun fromPublic(type: KeyType, publicKey: String): KeyPair {
+            val pub = decode(type, publicKey, "public")
+            checkPublic(type, pub)
             return KeyPair(type, pub, null)
         }
 
@@ -181,18 +198,42 @@ class KeyPair private constructor(
          * a caller nothing.
          */
         @JvmStatic
-        fun fromKeys(type: KeyType, publicKeyBase64: String, privateKeyBase64: String): KeyPair {
-            val pub = decode(publicKeyBase64, "public")
-            val prv = decode(privateKeyBase64, "private")
-            checkLength(type, pub, PUBLIC_BYTES[type], "public")
+        fun fromKeys(type: KeyType, publicKey: String, privateKey: String): KeyPair {
+            val pub = decode(type, publicKey, "public")
+            val prv = decode(type, privateKey, "private")
+            checkPublic(type, pub)
             checkLength(type, prv, PRIVATE_BYTES[type], "private")
             return KeyPair(type, pub, prv)
         }
 
-        private fun decode(value: String, what: String): ByteArray = try {
-            Base64.getDecoder().decode(value)
-        } catch (e: IllegalArgumentException) {
-            throw IllegalArgumentException("$what key is not valid base64", e)
+        /**
+         * secp256k1, with the public key form chosen explicitly.
+         *
+         * The ledger accepts both; compressed is smaller and is what
+         * [generate] produces.
+         */
+        @JvmStatic
+        @JvmOverloads
+        fun generateSecp256k1(compressed: Boolean = true): KeyPair {
+            val (pub, prv) = Secp256k1.generate(compressed)
+            return KeyPair(KeyType.SECP256K1, pub, prv)
+        }
+
+        private fun decode(type: KeyType, value: String, what: String): ByteArray =
+            if (type == KeyType.SECP256K1) Secp256k1.fromHex(value, what)
+            else try {
+                Base64.getDecoder().decode(value)
+            } catch (e: IllegalArgumentException) {
+                throw IllegalArgumentException("$what key is not valid base64", e)
+            }
+
+        /**
+         * secp256k1 has two valid public key lengths, so it cannot use the
+         * single-expected-length check the post-quantum schemes use.
+         */
+        private fun checkPublic(type: KeyType, bytes: ByteArray) {
+            if (type == KeyType.SECP256K1) Secp256k1.checkPublic(bytes)
+            else checkLength(type, bytes, PUBLIC_BYTES[type], "public")
         }
 
         private fun checkLength(type: KeyType, bytes: ByteArray, expected: Int?, what: String) {

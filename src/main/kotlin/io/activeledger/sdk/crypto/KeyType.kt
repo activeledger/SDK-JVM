@@ -37,6 +37,7 @@ enum class KeyType(val wire: String) {
 
     companion object {
         private val byWire = entries.associateBy { it.wire }
+        private val ALIASES = mapOf("bitcoin" to SECP256K1, "ethereum" to SECP256K1)
 
         /**
          * Converts a wire string, throwing on anything unrecognised.
@@ -47,7 +48,11 @@ enum class KeyType(val wire: String) {
          */
         @JvmStatic
         fun fromWire(value: String): KeyType =
-            byWire[value] ?: throw IllegalArgumentException(
+            // The ledger routes 'bitcoin' and 'ethereum' to identical
+            // secp256k1 verification, so an existing identity may carry
+            // either. Accepted here and NEVER emitted: [wire] always returns
+            // 'secp256k1', so three names for one scheme cannot spread.
+            byWire[value] ?: ALIASES[value] ?: throw IllegalArgumentException(
                 "Unknown key type '$value' - expected one of ${entries.joinToString(", ") { it.wire }}"
             )
     }
