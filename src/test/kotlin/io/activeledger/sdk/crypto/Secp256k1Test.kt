@@ -27,6 +27,7 @@ class Secp256k1Test {
         val privateKey: String,
         val signature: ByteArray,
         val deterministicSignature: String,
+        val highSSignature: ByteArray,
     )
 
     private val vectors: List<Vector> by lazy {
@@ -43,6 +44,7 @@ class Secp256k1Test {
                     privateKey = v.get("privateKey").asString,
                     signature = Base64.getDecoder().decode(v.get("signature").asString),
                     deterministicSignature = v.get("deterministicSignature").asString,
+                    highSSignature = Base64.getDecoder().decode(v.get("highSSignature").asString),
                 )
             }
     }
@@ -80,19 +82,32 @@ class Secp256k1Test {
      */
     @Test
     fun `high-S signatures from elsewhere still verify`() {
-        val highS = vectors.filter { Secp256k1.isHighS(it.signature) }
+        for (v in vectors) {
+            // The fixture must be what it claims. A "high-S" signature that is
+            // not high-S would pass a permissive verifier for the wrong
+            // reason: green, and proving nothing.
+            assertTrue(
+                Secp256k1.isHighS(v.highSSignature),
+                "${v.name}/${v.form}: the published high-S fixture is not high-S",
+            )
 
-        assertTrue(
-            highS.isNotEmpty(),
-            "the published vectors no longer contain a high-S signature, so this test proves nothing",
-        )
-
-        for (v in highS) {
             val key = KeyPair.fromPublic(KeyType.SECP256K1, v.publicKey)
             assertTrue(
-                key.verify(v.message, v.signature),
+                key.verify(v.message, v.highSSignature),
                 "rejected a high-S signature (${v.name}/${v.form}) - low-S is being enforced on verify",
             )
+        }
+    }
+
+    /**
+     * Permissive about s only. Accepting high-S must not have quietly widened
+     * anything else.
+     */
+    @Test
+    fun `the high-S form still rejects a tampered message`() {
+        for (v in vectors) {
+            val key = KeyPair.fromPublic(KeyType.SECP256K1, v.publicKey)
+            assertFalse(key.verify(v.message + ' '.code.toByte(), v.highSSignature))
         }
     }
 
