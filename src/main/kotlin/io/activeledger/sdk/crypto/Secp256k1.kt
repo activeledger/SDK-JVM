@@ -18,6 +18,13 @@ import org.bouncycastle.crypto.signers.HMacDSAKCalculator
 /**
  * secp256k1, encoded the way Activeledger stores it.
  *
+ * Public rather than internal because [isHighS] is genuinely useful to a
+ * caller: it is how you check whether a signature that arrived from somewhere
+ * else is in the canonical low-S form, and Kotlin's `internal` made it
+ * unreachable from another module even though it compiles to a public JVM
+ * method. The Python SDK exports its equivalent, and there is no reason for
+ * this one to differ.
+ *
  * Kept apart from [KeyPair]'s post-quantum paths because almost nothing is
  * shared. The post-quantum keys are raw bytes in base64; these are hex with an
  * `0x` prefix. The post-quantum signatures are fixed or near-fixed length raw
@@ -26,7 +33,7 @@ import org.bouncycastle.crypto.signers.HMacDSAKCalculator
  * produces material the ledger rejects as 1220 "Signature Incorrect" while
  * saying nothing else.
  */
-internal object Secp256k1 {
+object Secp256k1 {
 
     /** 33 compressed, 65 uncompressed. The ledger accepts both. */
     const val PUBLIC_COMPRESSED_BYTES = 33
@@ -119,8 +126,18 @@ internal object Secp256k1 {
         return signer.verifySignature(sha256(message), r, s)
     }
 
+    /** Folds S into the lower half of the curve order. */
     fun lowS(s: BigInteger): BigInteger = if (s > halfOrder) domain.n.subtract(s) else s
 
+    /**
+     * Whether a DER signature's S is in the upper half of the curve order.
+     *
+     * Everything this SDK emits is low-S, so this is for signatures that
+     * arrived from elsewhere. The ledger produces high-S freely and this SDK
+     * verifies both, but a verifier written against `@noble/curves`,
+     * libsecp256k1 or Rust's `k256` rejects high-S by default -- so this is
+     * the check to make before handing a signature to one of those.
+     */
     fun isHighS(signature: ByteArray): Boolean = decodeDer(signature).second > halfOrder
 
     private fun sha256(message: ByteArray): ByteArray {
