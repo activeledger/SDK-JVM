@@ -1,0 +1,75 @@
+name: Verify release assets
+
+# The failure this exists for has happened three times, each time in the
+# last hop rather than the work: metadata generated but left in
+# build/publications, attached in a format the consumer's resolver cannot
+# parse, attached under a name their pattern does not match.
+#
+# Every one was invisible to us because we checked as publishers - the API
+# listing showed the asset and we called it done. It is only visible by
+# fetching the URL a consumer would fetch.
+#
+# The API listing is NOT sufficient on its own: an asset can report
+# state=uploaded with a valid browser_download_url while still returning
+# 404, for roughly fifteen seconds after upload. So this downloads.
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to verify"
+        required: true
+
+jobs:
+  assets:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fetch every expected asset as a consumer would
+        env:
+          TAG: ${{ github.event.release.tag_name || inputs.tag }}
+        run: |
+          set -u
+          version="${TAG#v}"
+          base="https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}"
+
+          # A jar alone is not a usable release: without the descriptor a
+          # consumer silently gets whatever BouncyCastle is already on their
+          # classpath, and ML-DSA fails at runtime with NoClassDefFoundError.
+          expected=(
+            "activeledger-sdk-${version}.jar"
+            "activeledger-sdk-${version}.pom"
+            "ivy-${version}.xml"
+          )
+
+          failed=0
+          for asset in "${expected[@]}"; do
+            # Retry: an asset can 404 briefly after upload while the CDN
+            # catches up. Six tries over a minute is well clear of what we
+            # have measured.
+            for attempt in $(seq 1 6); do
+              code=$(curl -sL -o /tmp/asset -w "%{http_code}" "${base}/${asset}")
+              [ "$code" = "200" ] && break
+              sleep 10
+            done
+
+            size=$(stat -c%s /tmp/asset 2>/dev/null || echo 0)
+            if [ "$code" != "200" ] || [ "$size" -lt 100 ]; then
+              echo "::error::${asset} is not downloadable (http ${code}, ${size} bytes)"
+              failed=1
+            else
+              echo "ok  ${asset}  (${size} bytes)"
+            fi
+          done
+
+          # The descriptor existing is not enough - it has to carry the
+          # dependency declarations, which is the entire reason it is there.
+          curl -sL -o /tmp/ivy.xml "${base}/ivy-${version}.xml" || true
+          if ! grep -q 'name="bcprov-jdk18on"' /tmp/ivy.xml 2>/dev/null; then
+            echo "::error::ivy-${version}.xml does not declare bcprov-jdk18on"
+            failed=1
+          else
+            echo "ok  ivy declares $(grep -o 'name="bcprov-jdk18on" rev="[^\"]*"' /tmp/ivy.xml)"
+          fi
+
+          exit $failed
