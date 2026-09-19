@@ -13,6 +13,7 @@ import org.bouncycastle.pqc.crypto.falcon.FalconParameters
 import org.bouncycastle.pqc.crypto.falcon.FalconPrivateKeyParameters
 import org.bouncycastle.pqc.crypto.falcon.FalconPublicKeyParameters
 import org.bouncycastle.pqc.crypto.falcon.FalconSigner
+import java.math.BigInteger
 import java.security.SecureRandom
 import java.util.Base64
 
@@ -179,6 +180,125 @@ class KeyPair private constructor(
             }
             KeyType.SECP256K1 -> generateSecp256k1(compressed = true)
             else -> throw UnsupportedOperationException("${type.wire} generation is not implemented yet")
+        }
+
+        /**
+         * Derives a key pair from the algorithm's own seed.
+         *
+         * No key derivation function is applied: the bytes given are the seed
+         * the scheme itself takes - 32 for ml-dsa-65 and secp256k1, 48 for
+         * falcon-512. A wrong length is refused rather than padded, because a
+         * padded seed is a different identity, not a malformed one.
+         *
+         * This is how a private key moves between Activeledger SDKs. The PHP
+         * SDK's ml-dsa-65 private key IS a 32-byte seed - its library
+         * implements FIPS 204 key generation from a seed but not
+         * skEncode/skDecode - so the 4032-byte encoding this SDK exports
+         * cannot be loaded there. The seed can be, and gives an identical
+         * public key.
+         */
+        @JvmStatic
+        @JvmOverloads
+        fun fromSeed(type: KeyType, seed: ByteArray, compressed: Boolean = true): KeyPair {
+            val expected = RecoveryPhrase.seedSize(type)
+            require(seed.size == expected) {
+                "${type.wire} needs a $expected-byte seed, got ${seed.size}. It is refused " +
+                    "rather than padded: a padded seed is a different identity, not a " +
+                    "malformed one."
+            }
+
+            return when (type) {
+                KeyType.ML_DSA_65 -> {
+                    // BouncyCastle's seed constructor, rather than driving the
+                    // generator with a fixed SecureRandom. Both give the same
+                    // key - measured - but this one says what it means.
+                    val prv = MLDSAPrivateKeyParameters(MLDSAParameters.ml_dsa_65, seed)
+                    KeyPair(type, prv.publicKeyParameters.encoded, prv.encoded)
+                }
+                KeyType.FALCON_512 -> {
+                    // Falcon has no seed constructor, so the generator is fed
+                    // a SecureRandom yielding exactly these bytes. Verified
+                    // byte for byte against @noble/post-quantum across the
+                    // full key before being relied on.
+                    val gen = FalconKeyPairGenerator()
+                    gen.init(FalconKeyGenerationParameters(FixedRandom(seed), FalconParameters.falcon_512))
+                    val pair = gen.generateKeyPair()
+                    KeyPair(
+                        type,
+                        PqKeyCodec.exportFalconPublic((pair.public as FalconPublicKeyParameters).h),
+                        PqKeyCodec.exportFalconPrivate((pair.private as FalconPrivateKeyParameters).encoded),
+                    )
+                }
+                KeyType.SECP256K1 -> {
+                    // The seed IS the scalar, so it has to be a valid one.
+                    // Refused rather than reduced mod n: reducing produces a
+                    // perfectly functional key belonging to a different
+                    // identity, and nothing downstream ever reports a problem.
+                    require(RecoveryPhrase.isValidScalar(seed)) {
+                        "seed is not a valid secp256k1 private key - the scalar must be in [1, n-1]"
+                    }
+
+                    val d = BigInteger(1, seed)
+                    KeyPair(
+                        type,
+                        Secp256k1.domain.g.multiply(d).normalize().getEncoded(compressed),
+                        Secp256k1.scalarBytes(d),
+                    )
+                }
+                else -> throw UnsupportedOperationException(
+                    "${type.wire} cannot be derived from a seed"
+                )
+            }
+        }
+
+        /**
+         * Derives a key pair from a BIP-39 recovery phrase.
+         *
+         * One phrase can back an ml-dsa-65, a falcon-512 and a secp256k1
+         * identity at once: each type derives its own seed, so none of them
+         * reveals the others.
+         */
+        @JvmStatic
+        @JvmOverloads
+        fun fromPhrase(
+            type: KeyType,
+            phrase: String,
+            passphrase: String = "",
+            compressed: Boolean = true,
+        ): KeyPair = fromSeed(
+            type,
+            RecoveryPhrase.deriveSeed(type, RecoveryPhrase.toSeed(phrase, passphrase)),
+            compressed,
+        )
+
+        /**
+         * Recovers a secp256k1 key pair from a phrase made by
+         * `@activeledger/sdk-bip39`.
+         *
+         * That scheme is SHA256(phrase) used directly as the scalar - no key
+         * stretching, no domain separation, no passphrase. It exists so an
+         * old phrase can be recovered, never so a new key can be made with it.
+         */
+        @JvmStatic
+        @JvmOverloads
+        fun fromLegacyPhrase(phrase: String, compressed: Boolean = true): KeyPair =
+            fromSeed(KeyType.SECP256K1, RecoveryPhrase.legacySeed(phrase), compressed)
+
+        /**
+         * A SecureRandom yielding fixed bytes, so keygen is deterministic.
+         *
+         * Only for Falcon, which BouncyCastle offers no seed constructor for.
+         * It cycles the seed rather than running out, because the generator
+         * may ask for more bytes than the seed holds.
+         */
+        private class FixedRandom(private val seed: ByteArray) : SecureRandom() {
+            private var position = 0
+
+            override fun nextBytes(bytes: ByteArray) {
+                for (i in bytes.indices) {
+                    bytes[i] = seed[position++ % seed.size]
+                }
+            }
         }
 
         /** A verify-only key pair. */
