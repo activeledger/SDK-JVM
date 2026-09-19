@@ -89,6 +89,10 @@ A `.pom` is attached too, for anyone consuming from a Maven-layout mirror.
 It is *not* readable from the ivy path above — ivy repositories have no
 `mavenPom()` metadata source.
 
+Maintainers cutting a release: see [RELEASING.md](RELEASING.md). Every asset
+above is required, and a release is not done until a fresh project resolves
+it.
+
 ### Runtime dependencies
 
 Beyond BouncyCastle, this SDK also needs **okhttp 4.12.0**,
