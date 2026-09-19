@@ -52,18 +52,50 @@ compile error rather than a silent fallback. So use the ivy descriptor:
 ```kotlin
 repositories {
     ivy {
-        url = uri("https://github.com/activeledger/SDK-JVM/releases/download/")
+        url = uri("https://github.com/activeledger/SDK-JVM/releases/download")
         patternLayout {
-            artifact("[revision]/[module]-[revision](.[ext])")
-            ivy("[revision]/ivy.xml")
+            artifact("v[revision]/[artifact]-[revision](-[classifier])(.[ext])")
+            ivy("v[revision]/ivy-[revision].xml")
         }
-        metadataSources { ivyDescriptor(); artifact() }
+        metadataSources { gradleMetadata(); ivyDescriptor(); artifact() }
+        content { includeGroup("io.github.activeledger") }
     }
+    mavenCentral()   // for the transitive dependencies
 }
 ```
 
+Verified by resolving it, not by reading it. That brings the whole graph:
+
+```
+io.github.activeledger:activeledger-sdk:0.2.1
+org.bouncycastle:bcprov-jdk18on:1.85.2
+com.squareup.okhttp3:okhttp:4.12.0
+com.google.code.gson:gson:2.11.0
+org.jetbrains.kotlinx:kotlinx-coroutines-core-jvm:1.9.0
+```
+
+**`gradleMetadata()` is required, not optional.** The attached `ivy.xml` is a
+stub: `ivy-publish` emits it with an empty `<configurations/>` and a marker
+deferring to Gradle Module Metadata. Without `gradleMetadata()`, Gradle reads
+the stub, finds dependencies referencing configurations it never declares, and
+fails with `Cannot add dependency ... because this configuration doesn't
+exist!`. The `.module` file is the real metadata.
+
+**The group is `io.github.activeledger`.** With the wrong group in
+`includeGroup`, the repository is simply never consulted and you get "not
+found" rather than anything diagnostic.
+
 A `.pom` is attached too, for anyone consuming from a Maven-layout mirror.
-It is *not* readable from the ivy path above.
+It is *not* readable from the ivy path above — ivy repositories have no
+`mavenPom()` metadata source.
+
+### Runtime dependencies
+
+Beyond BouncyCastle, this SDK also needs **okhttp 4.12.0**,
+**kotlinx-coroutines-core 1.9.0** and **gson 2.11.0** at runtime. The
+resolution above brings them. If you take the artifact-only path instead, you
+must declare all four yourself, or `ActiveledgerClient` and `EventStream` fail
+with `NoClassDefFoundError` in exactly the same way ML-DSA did.
 
 Simplest alternative — declare BouncyCastle yourself and skip the metadata
 entirely:
