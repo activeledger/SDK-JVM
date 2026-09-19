@@ -10,11 +10,45 @@ One artefact serves Kotlin, Java and Android. Replaces `SDK-Kotlin`, `SDK-Java` 
 
 ```kotlin
 dependencies {
-    implementation("io.github.activeledger:activeledger-sdk:0.1.1")
+    implementation("io.github.activeledger:activeledger-sdk:0.2.1")
 }
 ```
 
 Android: `minSdk 26`. The bytecode is checked against the Android 26 API surface at build time, so an API the floor lacks fails our build rather than your users' phones.
+
+### BouncyCastle 1.84 or later is required
+
+This is a hard floor, and getting it wrong fails at **runtime**, not at compile
+time:
+
+```
+NoClassDefFoundError: org/bouncycastle/crypto/generators/MLDSAKeyPairGenerator
+```
+
+BouncyCastle moved ML-DSA out of `org.bouncycastle.pqc.crypto.mldsa` and into
+`org.bouncycastle.crypto.generators`. This SDK uses the new location. Verified
+by inspecting the published jars:
+
+| Version | ML-DSA location |
+|---|---|
+| 1.78.1 and earlier | absent entirely |
+| 1.81 – 1.83 | `pqc.crypto.mldsa` only — **will not work** |
+| **1.84 and later** | `crypto.generators` — what this SDK imports |
+
+Built and tested against **1.85.2**.
+
+**If you resolve this SDK from a GitHub release rather than a Maven
+repository, you must declare BouncyCastle yourself.** A bare jar carries no
+POM, so Gradle cannot see this SDK's own dependency declarations and will
+silently give you whatever BouncyCastle is already on your classpath — which
+is how the error above appears with no obvious cause. The `.pom` is attached
+to each release for this reason; point `metadataSources` at it, or add:
+
+```kotlin
+implementation("org.bouncycastle:bcprov-jdk18on:1.85.2")
+```
+
+None of this applies once the SDK is on Maven Central, which it is not yet.
 
 ## Key types
 
@@ -22,8 +56,7 @@ Android: `minSdk 26`. The bytecode is checked against the Android 26 API surface
 | --- | --- | --- | --- |
 | ML-DSA-65 | `ml-dsa-65` | 1952 bytes | 3309 bytes |
 | Falcon-512 | `falcon-512` | 897 bytes | 649-662 bytes, variable |
-| secp256k1 | `secp256k1` | 33 or 65 bytes | ~70-72 bytes, variable |
-| secp256k1 | `secp256k1` | 65 bytes | ~70-72 bytes DER |
+| secp256k1 | `secp256k1` | 33 or 65 bytes | ~70-72 bytes DER, variable |
 | RSA | `rsa` | — | — |
 
 Post-quantum keys are base64 of raw algorithm bytes. Falcon signature length **varies** — nothing may assume it fixed.
