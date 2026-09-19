@@ -1,13 +1,12 @@
 name: Verify release assets
 
-# The failure this exists for has happened three times, each time in the
-# last hop rather than the work: metadata generated but left in
-# build/publications, attached in a format the consumer's resolver cannot
-# parse, attached under a name their pattern does not match.
+# Publishing is not done when the artifact is uploaded. It is done when a
+# fresh project can resolve it. RELEASING.md has the four failures that
+# produced that sentence; all four were in the last hop rather than the
+# work, and all four were green from this side.
 #
-# Every one was invisible to us because we checked as publishers - the API
-# listing showed the asset and we called it done. It is only visible by
-# fetching the URL a consumer would fetch.
+# They were invisible because we checked as publishers - the API listing
+# showed the asset and we called it done.
 #
 # The API listing is NOT sufficient on its own: an asset can report
 # state=uploaded with a valid browser_download_url while still returning
