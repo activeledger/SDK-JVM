@@ -2,6 +2,7 @@ plugins {
     kotlin("jvm") version "2.0.21"
     `java-library`
     `maven-publish`
+    `ivy-publish`
     // Android compatibility is enforced at compile time, not claimed.
     // There is no Android SDK in this build and no device in CI, so the
     // only honest guarantee is that the bytecode cannot reference an API
@@ -104,6 +105,26 @@ tasks.test {
 
 publishing {
     publications {
+        // An ivy descriptor as well as a POM, because the two are not
+        // interchangeable for a consumer.
+        //
+        // A GitHub release can only be consumed through an ivy repository
+        // with a patternLayout - there is no Maven layout to point at. And
+        // Gradle's IvyArtifactRepository.metadataSources offers
+        // gradleMetadata(), ivyDescriptor() and artifact(), but NOT
+        // mavenPom(): asking for it is a compile error, not a silent
+        // fallback. So a POM attached to a release is unreachable from the
+        // one path that actually needs it, and this SDK's dependency
+        // declarations - the BouncyCastle floor in particular - stay
+        // invisible.
+        //
+        // Both are published. The POM serves anyone on a Maven-layout
+        // mirror; the ivy descriptor serves the release path.
+        create<IvyPublication>("ivy") {
+            from(components["java"])
+            module = "activeledger-sdk"
+        }
+
         create<MavenPublication>("maven") {
             from(components["java"])
             artifactId = "activeledger-sdk"

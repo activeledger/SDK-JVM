@@ -37,12 +37,36 @@ by inspecting the published jars:
 
 Built and tested against **1.85.2**.
 
-**If you resolve this SDK from a GitHub release rather than a Maven
-repository, you must declare BouncyCastle yourself.** A bare jar carries no
-POM, so Gradle cannot see this SDK's own dependency declarations and will
-silently give you whatever BouncyCastle is already on your classpath — which
-is how the error above appears with no obvious cause. The `.pom` is attached
-to each release for this reason; point `metadataSources` at it, or add:
+### Resolving from a GitHub release
+
+A bare jar carries no metadata, so Gradle cannot see this SDK's own dependency
+declarations and will silently give you whatever BouncyCastle is already on
+your classpath — which is how the error above appears with no obvious cause.
+
+Each release therefore attaches **`ivy.xml`** as well as the jar. A GitHub
+release can only be consumed through an ivy repository, and
+`IvyArtifactRepository.metadataSources` offers `gradleMetadata()`,
+`ivyDescriptor()` and `artifact()` — **but not `mavenPom()`**, which is a
+compile error rather than a silent fallback. So use the ivy descriptor:
+
+```kotlin
+repositories {
+    ivy {
+        url = uri("https://github.com/activeledger/SDK-JVM/releases/download/")
+        patternLayout {
+            artifact("[revision]/[module]-[revision](.[ext])")
+            ivy("[revision]/ivy.xml")
+        }
+        metadataSources { ivyDescriptor(); artifact() }
+    }
+}
+```
+
+A `.pom` is attached too, for anyone consuming from a Maven-layout mirror.
+It is *not* readable from the ivy path above.
+
+Simplest alternative — declare BouncyCastle yourself and skip the metadata
+entirely:
 
 ```kotlin
 implementation("org.bouncycastle:bcprov-jdk18on:1.85.2")
