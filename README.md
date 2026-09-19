@@ -150,6 +150,55 @@ Use secp256k1 when you do not need post-quantum guarantees: it is roughly
 **22x smaller** per transaction, works with hardware wallets and HSMs, and is
 the only way to sign for an identity created before post-quantum support.
 
+## Seeds and recovery phrases
+
+```kotlin
+val key = KeyPair.fromSeed(KeyType.ML_DSA_65, seed)        // 32 bytes
+val key = KeyPair.fromSeed(KeyType.FALCON_512, seed)       // 48 bytes
+val key = KeyPair.fromPhrase(KeyType.ML_DSA_65, phrase)    // BIP-39
+val key = KeyPair.fromPhrase(KeyType.SECP256K1, phrase, "passphrase")
+```
+
+The same seed gives the same identity in every Activeledger SDK, which is what
+makes a seed the portable private-key format — it is how a private key moves
+between languages. It matters most for PHP, whose ML-DSA-65 private key **is**
+a 32-byte seed and which has no 4032-byte form at all.
+
+A seed of the wrong length is **refused, not padded**: a padded seed is a
+different identity, not a malformed one.
+
+For `secp256k1` the seed **is** the private scalar, so it has to be a valid
+one. A seed of zero, or one at or above the curve order, is refused rather
+than reduced mod *n* — reducing produces a perfectly functional key belonging
+to a different identity, and nothing downstream ever reports a problem.
+
+The phrase is validated, wordlist **and** checksum. A mistyped phrase that is
+not checked does not fail; it derives a valid key for an identity nobody owns,
+and the only symptom is the ledger not recognising it.
+
+`KeyPair.fromLegacyPhrase` recovers a phrase made by the older
+`@activeledger/sdk-bip39` package — recovery only, never for new keys.
+
+### The derivation
+
+| Type | Seed from the BIP-39 seed `S` |
+| --- | --- |
+| `secp256k1` | `HMAC-SHA512("Bitcoin seed", S)[0..32]` |
+| `ml-dsa-65` | `HKDF-SHA512(S, salt="", info="activeledger-seed-v1:ml-dsa-65", 32)` |
+| `falcon-512` | `HKDF-SHA512(S, salt="", info="activeledger-seed-v1:falcon-512", 48)` |
+
+`secp256k1` deliberately does not use HKDF: the JavaScript SDK shipped that
+derivation before the post-quantum types existed, so phrases are already in
+use, and changing it would hand those users a different key for a phrase that
+used to work.
+
+One phrase can back all three identity types at once, since each derives its
+own seed.
+
+BouncyCastle's PBKDF2 and HKDF are used rather than `javax.crypto`'s:
+BouncyCastle is already a dependency, `PBKDF2WithHmacSHA512` is not guaranteed
+present on every JRE, and the platform has no HKDF at all.
+
 ## Kotlin
 
 ```kotlin
