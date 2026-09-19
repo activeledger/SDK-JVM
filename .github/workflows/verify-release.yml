@@ -73,3 +73,26 @@ jobs:
           fi
 
           exit $failed
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: actions/checkout@v4
+
+      # Fetching the bytes is not enough, and this is the lesson of four
+      # separate failures: a descriptor can serve a clean 200, carry the
+      # right organisation and the right dependency list, and still be
+      # unusable. The ivy.xml we publish is a stub with an empty
+      # <configurations/> that Gradle refuses to parse on its own.
+      #
+      # So resolve the coordinate the way a consumer does, and assert the
+      # dependencies actually arrive. A missing one is a
+      # NoClassDefFoundError in someone's application, never a failure here.
+      - name: Resolve the published coordinate as a consumer
+        working-directory: .github/consumer-check
+        env:
+          TAG: ${{ github.event.release.tag_name || inputs.tag }}
+        run: |
+          gradle --no-daemon -PsdkVersion="${TAG#v}" verifyResolution
