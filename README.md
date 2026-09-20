@@ -10,7 +10,7 @@ One artefact serves Kotlin, Java and Android. Replaces `SDK-Kotlin`, `SDK-Java` 
 
 ```kotlin
 dependencies {
-    implementation("io.github.activeledger:activeledger-sdk:0.2.1")
+    implementation("io.github.activeledger:activeledger-sdk:0.3.0")
 }
 ```
 
@@ -67,7 +67,7 @@ repositories {
 Verified by resolving it, not by reading it. That brings the whole graph:
 
 ```
-io.github.activeledger:activeledger-sdk:0.2.1
+io.github.activeledger:activeledger-sdk:0.3.0
 org.bouncycastle:bcprov-jdk18on:1.85.2
 com.squareup.okhttp3:okhttp:4.12.0
 com.google.code.gson:gson:2.11.0
