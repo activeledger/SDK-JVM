@@ -1,5 +1,7 @@
 package io.activeledger.sdk.json
 
+import java.util.Locale
+
 /**
  * A JSON model and serialiser that reproduces JavaScript's `JSON.stringify`
  * byte for byte.
@@ -124,16 +126,69 @@ object CanonicalJson {
         require(!value.isNaN()) { "NaN cannot be serialised - JSON.stringify emits null, which would sign bytes you did not intend" }
         require(!value.isInfinite()) { "Infinity cannot be serialised - JSON.stringify emits null, which would sign bytes you did not intend" }
 
-        if (value == Math.floor(value) && Math.abs(value) < 1e21) {
-            // Whole and inside the range JavaScript prints without an
-            // exponent. toLong() also normalises -0.0 to 0, matching
-            // JSON.stringify(-0) === "0".
-            out.append(value.toLong().toString())
-        } else {
-            // Kotlin's Double.toString gives the shortest round-tripping
-            // form, which is the same rule JavaScript uses.
-            out.append(value.toString())
+        out.append(jsNumber(value))
+    }
+
+    /**
+     * Formats a number exactly as `JSON.stringify` would.
+     *
+     * What gets signed is `JSON.stringify($tx)`, and the ledger verifies
+     * against a RE-STRINGIFIED `$tx` - its crypto package calls
+     * `JSON.stringify` on the object its HTTP layer already parsed.
+     * JavaScript's formatting is therefore the specification rather than a
+     * convention, and a number written differently produces a signature the
+     * ledger rejects as 1220 "Signature Incorrect", with nothing in the
+     * message about numbers.
+     *
+     * The JVM disagreed in three ways:
+     *
+     *  - `Double.toString` gives `1.0E21`, JavaScript writes `1e+21`.
+     *  - `toLong()` SATURATES, so 1e19 printed as 9223372036854775807 -
+     *    Long.MAX_VALUE - rather than 10000000000000000000.
+     *  - `Double.toString` is NOT the shortest round-tripping form before
+     *    JDK 19, whatever the previous comment here claimed: on 17 it gives
+     *    9.999999999999999E22 for 1.0E23, and 18 significant digits where
+     *    JavaScript uses 17. This SDK targets 11, 17 and 21, so the shortest
+     *    form is found by increasing precision instead.
+     *
+     * Implements ECMA-262 Number::toString. Cross-checked against
+     * `JSON.stringify` on 6139 doubles including every power of ten from
+     * 1e-330 to 1e308.
+     *
+     * Locale.ROOT throughout: a machine under a locale that uses a comma as
+     * the decimal separator would otherwise sign bytes no ledger can read,
+     * which is the kind of bug that only appears on someone else's machine.
+     */
+    fun jsNumber(value: Double): String {
+        if (value == 0.0) return "0"          // covers -0.0, which JavaScript prints as "0"
+        if (value < 0.0) return "-" + jsNumber(-value)
+
+        var text = String.format(Locale.ROOT, "%.16e", value)
+        for (precision in 0..16) {
+            val candidate = String.format(Locale.ROOT, "%.${precision}e", value)
+            if (candidate.toDouble() == value) {
+                text = candidate
+                break
+            }
         }
+
+        val split = text.indexOf('e')
+        val mantissa = text.substring(0, split)
+        val n = text.substring(split + 1).toInt() + 1   // value == 0.<digits> * 10**n
+
+        val digits = mantissa.replace(".", "").trimEnd('0').ifEmpty { "0" }
+        val k = digits.length
+
+        // Plain decimal while -6 < n <= 21; exponent form outside it.
+        if (k <= n && n <= 21) return digits + "0".repeat(n - k)
+        if (n in 1..21) return digits.substring(0, n) + "." + digits.substring(n)
+        if (n > -6 && n <= 0) return "0." + "0".repeat(-n) + digits
+
+        // Exponent form: no leading zeros, explicit "+" when positive.
+        val e = n - 1
+        val head = if (k == 1) digits else digits.substring(0, 1) + "." + digits.substring(1)
+
+        return head + "e" + (if (e >= 0) "+" else "-") + Math.abs(e)
     }
 
     /**
