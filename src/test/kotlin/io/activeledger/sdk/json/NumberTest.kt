@@ -81,13 +81,29 @@ class NumberTest {
     }
 
     /**
-     * Double.toString is NOT shortest before JDK 19, whatever its reputation.
-     * This SDK targets 11, 17 and 21, so it cannot be relied on.
+     * Double.toString cannot be relied on, and this SDK targets 11, 17 and 21.
+     *
+     * Before JDK 19 it is not the shortest round-tripping form - on 17,
+     * 1.0E23 comes back as 9.999999999999999E22 - and JDK 19 changed it. So
+     * the value it returns is a property of the RUNTIME, not of the number.
+     *
+     * The assertion is therefore on jsNumber alone, which must give the same
+     * answer on every JDK. An earlier version of this test pinned the JDK 17
+     * string and failed on 21, which is the same class of mistake it exists
+     * to catch: an expectation that encodes the environment rather than the
+     * behaviour.
      */
     @Test
     fun `shortest form is found rather than taken from Double toString`() {
-        assertEquals("9.999999999999999E22", (1.0E23).toString())
         assertEquals("1e+23", CanonicalJson.jsNumber(1.0E23))
+        assertEquals("1e+21", CanonicalJson.jsNumber(1.0E21))
+
+        // Whatever this runtime prints, the canonical form does not follow it.
+        val platform = (1.0E23).toString()
+        assertTrue(
+            platform == "1.0E23" || platform == "9.999999999999999E22",
+            "unexpected platform rendering: $platform",
+        )
     }
 
     @Test
