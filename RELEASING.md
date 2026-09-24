@@ -3,6 +3,15 @@
 **Publishing is not done when the artifact is uploaded. It is done when a
 fresh project can resolve it.**
 
+Every version ships on two channels, as the same coordinate,
+`io.github.activeledger:activeledger`:
+
+- **Maven Central**, which is what the README tells users to install from.
+- **A GitHub release**, consumed through an ivy repository.
+
+Each channel is verified on its own. One resolving says nothing about the
+other.
+
 That sentence is the whole document. Everything below is the procedure that
 follows from it, and the four failures that produced it.
 
@@ -31,7 +40,38 @@ resolves this SDK from `build/libs` and never once reads what we published.
 
 ## Cutting a release
 
-Set the version in `build.gradle.kts`, then build and stage every asset:
+The version lives in one place: `version` in `build.gradle.kts`. The Maven
+Central coordinates, the ivy publication and the jar names all read it.
+Bump it there, then commit.
+
+### 1. Maven Central
+
+```bash
+./gradlew publishToMavenCentral
+```
+
+This uploads a signed deployment to the Central Portal and stops. Check it
+at <https://central.sonatype.com/publishing/deployments>, then press
+**Publish**. (`publishAndReleaseToMavenCentral` skips that manual step.)
+Signing needs the `signingInMemoryKey*` and `mavenCentralUsername`/
+`mavenCentralPassword` Gradle properties, normally set in
+`~/.gradle/gradle.properties`, never in this repo.
+
+A version on Central is permanent. It cannot be replaced or deleted, only
+superseded by the next version, so check the POM (license, SCM URL,
+dependencies) in the Portal before you press Publish.
+
+"Published" in the Portal is not the same as resolvable. Sync to
+`repo1.maven.org` takes anywhere from minutes to hours. Verify it the way a
+consumer would:
+
+```bash
+gradle -p .github/consumer-check --no-daemon -PsdkVersion="$V" -Psource=central verifyResolution
+```
+
+### 2. GitHub release
+
+Build and stage every asset:
 
 ```bash
 V=$(grep -oP '^version = "\K[^"]+' build.gradle.kts)
@@ -42,11 +82,11 @@ V=$(grep -oP '^version = "\K[^"]+' build.gradle.kts)
   generatePomFileForMavenPublication
 
 mkdir -p /tmp/release && cd /tmp/release
-cp "$OLDPWD/build/libs/activeledger-sdk-$V.jar"          .
-cp "$OLDPWD/build/libs/activeledger-sdk-$V-sources.jar"  .
-cp "$OLDPWD/build/publications/ivy/module.json"          "activeledger-sdk-$V.module"
-cp "$OLDPWD/build/publications/ivy/ivy.xml"              "ivy-$V.xml"
-cp "$OLDPWD/build/publications/maven/pom-default.xml"    "activeledger-sdk-$V.pom"
+cp "$OLDPWD/build/libs/activeledger-$V.jar"             .
+cp "$OLDPWD/build/libs/activeledger-$V-sources.jar"     .
+cp "$OLDPWD/build/publications/ivy/module.json"         "activeledger-$V.module"
+cp "$OLDPWD/build/publications/ivy/ivy.xml"             "ivy-$V.xml"
+cp "$OLDPWD/build/publications/maven/pom-default.xml"   "activeledger-$V.pom"
 ```
 
 The renames are not cosmetic. `module.json` and `pom-default.xml` are
@@ -57,11 +97,15 @@ All five assets are required:
 
 | Asset | Why it must be attached |
 | --- | --- |
-| `activeledger-sdk-$V.jar` | The library. |
-| `activeledger-sdk-$V.module` | Gradle Module Metadata. **The only file that carries the dependency graph on the ivy path.** Without it the ivy stub is unparseable — failure 4. |
+| `activeledger-$V.jar` | The library. |
+| `activeledger-$V.module` | Gradle Module Metadata. **The only file that carries the dependency graph on the ivy path.** Without it the ivy stub is unparseable — failure 4. |
 | `ivy-$V.xml` | What `ivyDescriptor()` fetches. A stub that defers to the `.module`; useless alone, required alongside it. |
-| `activeledger-sdk-$V.pom` | For Maven-layout mirrors only. Unreachable from a GitHub release — failure 2. |
-| `activeledger-sdk-$V-sources.jar` | Sources, for consumers' IDEs. |
+| `activeledger-$V.pom` | For Maven-layout mirrors only. Unreachable from a GitHub release — failure 2. |
+| `activeledger-$V-sources.jar` | Sources, for consumers' IDEs. |
+
+The ivy publication in `build.gradle.kts` exists only for this channel. The
+Maven Central plugin does not need it, which is how it came to be deleted
+once already. Without it, none of the ivy tasks above exist.
 
 Then tag, create the release, and upload all five:
 
@@ -72,27 +116,41 @@ gh release create "v$V" --title "v$V" --notes "..." /tmp/release/*
 
 ## Verifying
 
-`.github/workflows/verify-release.yml` runs automatically on publish. It does
-two things, and the second is the one that matters:
+`.github/workflows/verify-release.yml` runs automatically when a GitHub
+release is published. It checks the GitHub channel only, and does two
+things. The second is the one that matters:
 
 - **Downloads** every expected asset from the URL a consumer would use. The
   API listing is not sufficient on its own: an asset can report
   `state=uploaded` with a valid `browser_download_url` and still 404 for
   roughly fifteen seconds after upload.
-- **Resolves** `io.github.activeledger:activeledger-sdk:$V` from a scratch
+- **Resolves** `io.github.activeledger:activeledger:$V` from a scratch
   project in `.github/consumer-check`, and asserts every declared runtime
   dependency actually arrives. That project is deliberately not a copy of
-  this build — it is a consumer, and only a consumer can see these faults.
+  this build. It is a consumer, and only a consumer can see these faults.
+  In GitHub mode it excludes this group from Maven Central, so a version
+  already on Central cannot make a broken release look fine.
 
-To check a release by hand, or before cutting one:
+Nothing checks Maven Central automatically, because its sync time is
+unpredictable. Run the `-Psource=central` check from step 1 by hand.
+
+To check either channel by hand:
 
 ```bash
 cd .github/consumer-check
-gradle --no-daemon -PsdkVersion="$V" verifyResolution
+gradle --no-daemon -PsdkVersion="$V" verifyResolution                   # GitHub release
+gradle --no-daemon -PsdkVersion="$V" -Psource=central verifyResolution  # Maven Central
 ```
 
-A pass prints the resolved graph. Treat a release as unpublished until it
-does.
+A pass prints the resolved graph. Treat a release as unpublished on a
+channel until that channel's check does.
+
+## Before 1.0.0
+
+Versions up to 0.4.0 were published only as GitHub releases, with the
+artifact `activeledger-sdk`. From 1.0.0 the artifact is `activeledger` on
+both channels. The 1.0.0 POM on Central says Apache 2.0; the SDK is MIT, as
+`LICENSE` says, and later versions declare that correctly.
 
 ## Adding a runtime dependency
 

@@ -14,8 +14,11 @@ dependencies {
 }
 ```
 
-From Maven Central. The artifact was `activeledger-sdk` for the 0.x GitHub
-releases; from 1.0.0 it is `activeledger`.
+From Maven Central. Each version is also attached to a
+[GitHub release](https://github.com/activeledger/SDK-JVM/releases) under the
+same coordinate; resolving from there needs an ivy repository, set up as in
+[`.github/consumer-check`](.github/consumer-check/build.gradle.kts). Up to
+0.4.0 the artifact was `activeledger-sdk`; from 1.0.0 it is `activeledger`.
 
 Android: `minSdk 26`. The bytecode is checked against the Android 26 API surface at build time, so an API the floor lacks fails our build rather than your users' phones.
 
