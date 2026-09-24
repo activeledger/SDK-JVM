@@ -5,8 +5,13 @@ plugins { `java-library` }
 
 val sdkVersion: String by project
 
+// -Psource=github (default) resolves from the GitHub release only;
+// -Psource=central resolves from Maven Central only. Each channel is
+// checked on its own, so one cannot mask a fault in the other.
+val source = (findProperty("source") as String?) ?: "github"
+
 repositories {
-    ivy {
+    if (source == "github") ivy {
         url = uri("https://github.com/activeledger/SDK-JVM/releases/download")
         patternLayout {
             artifact("v[revision]/[artifact]-[revision](-[classifier])(.[ext])")
@@ -19,11 +24,13 @@ repositories {
         metadataSources { gradleMetadata(); ivyDescriptor(); artifact() }
         content { includeGroup("io.github.activeledger") }
     }
-    mavenCentral()
+    mavenCentral {
+        if (source == "github") content { excludeGroup("io.github.activeledger") }
+    }
 }
 
 dependencies {
-    implementation("io.github.activeledger:activeledger-sdk:$sdkVersion")
+    implementation("io.github.activeledger:activeledger:$sdkVersion")
 }
 
 tasks.register("verifyResolution") {
@@ -37,7 +44,7 @@ tasks.register("verifyResolution") {
         // any of these is a NoClassDefFoundError in someone's application,
         // not a build failure here - which is exactly why it needs asserting.
         val required = listOf(
-            "io.github.activeledger:activeledger-sdk",
+            "io.github.activeledger:activeledger",
             "org.bouncycastle:bcprov-jdk18on",
             "com.squareup.okhttp3:okhttp",
             "com.google.code.gson:gson",

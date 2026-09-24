@@ -11,7 +11,7 @@ plugins {
 }
 
 group = "io.github.activeledger"
-version = "0.4.0"
+version = "1.0.0"
 
 repositories {
     mavenCentral()
@@ -104,18 +104,21 @@ tasks.test {
 }
 
 mavenPublishing {
-    // Defines coordinates: io.github.activeledger:activeledger:1.0.0
-    coordinates("io.github.activeledger", "activeledger", "1.0.0")
+    // From the project, not restated: the GitHub release and Maven Central
+    // must carry the same coordinate and version.
+    coordinates(group.toString(), rootProject.name, version.toString())
 
     pom {
         name.set("Activeledger SDK")
         description.set("Kotlin/JVM SDK for Activeledger")
         inceptionYear.set("2026")
-        url.set("https://github.com/activeledger/SDK-Kotlin")
+        url.set("https://github.com/activeledger/SDK-JVM")
         licenses {
+            // Must match LICENSE. 1.0.0 went to Central declaring Apache 2.0
+            // by mistake; a published POM cannot be corrected, only superseded.
             license {
-                name.set("The Apache License, Version 2.0")
-                url.set("http://www.apache.org/licenses/LICENSE-2.0.txt")
+                name.set("MIT License")
+                url.set("https://opensource.org/licenses/MIT")
             }
         }
         developers {
@@ -126,15 +129,31 @@ mavenPublishing {
             }
         }
         scm {
-            url.set("https://github.com/activeledger/SDK-Kotlin")
-            connection.set("scm:git:git://github.com/activeledger/SDK-Kotlin.git")
-            developerConnection.set("scm:git:ssh://github.com/activeledger/SDK-Kotlin.git")
+            url.set("https://github.com/activeledger/SDK-JVM")
+            connection.set("scm:git:git://github.com/activeledger/SDK-JVM.git")
+            developerConnection.set("scm:git:ssh://github.com/activeledger/SDK-JVM.git")
         }
     }
 
     // Directs uploads to the modern Central Portal and signs artifacts
     publishToMavenCentral(com.vanniktech.maven.publish.SonatypeHost.CENTRAL_PORTAL)
     signAllPublications()
+}
+
+// Maven Central is one release channel; GitHub releases are the other. The
+// Maven publication above does not serve a GitHub release: that can only be
+// consumed through an ivy repository with a patternLayout, and Gradle's
+// IvyArtifactRepository.metadataSources offers gradleMetadata(),
+// ivyDescriptor() and artifact() but NOT mavenPom() - asking for it is a
+// compile error, not a silent fallback. So a POM attached to a release is
+// unreachable, and the dependency declarations (the BouncyCastle floor in
+// particular) with it. RELEASING.md has what went wrong without this.
+publishing {
+    publications {
+        create<IvyPublication>("ivy") {
+            from(components["java"])
+        }
+    }
 }
 
 // Integration tests run against a real 4-node network served by the ledger

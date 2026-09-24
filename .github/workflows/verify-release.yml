@@ -36,8 +36,8 @@ jobs:
           # consumer silently gets whatever BouncyCastle is already on their
           # classpath, and ML-DSA fails at runtime with NoClassDefFoundError.
           expected=(
-            "activeledger-sdk-${version}.jar"
-            "activeledger-sdk-${version}.pom"
+            "activeledger-${version}.jar"
+            "activeledger-${version}.pom"
             "ivy-${version}.xml"
           )
 
