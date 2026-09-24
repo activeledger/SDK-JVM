@@ -10,16 +10,23 @@ One artefact serves Kotlin, Java and Android. Replaces `SDK-Kotlin`, `SDK-Java` 
 
 ```kotlin
 dependencies {
-    implementation("io.github.activeledger:activeledger-sdk:0.4.0")
+    implementation("io.github.activeledger:activeledger:1.0.0")
 }
 ```
 
+From Maven Central. The artifact was `activeledger-sdk` for the 0.x GitHub
+releases; from 1.0.0 it is `activeledger`.
+
 Android: `minSdk 26`. The bytecode is checked against the Android 26 API surface at build time, so an API the floor lacks fails our build rather than your users' phones.
+
+Verified: resolves from Maven Central into a clean project, with its runtime
+dependencies, and derives keys for all three schemes.
 
 ### BouncyCastle 1.84 or later is required
 
-This is a hard floor, and getting it wrong fails at **runtime**, not at compile
-time:
+The published metadata brings in BouncyCastle 1.85.2, so a plain Maven Central
+dependency needs nothing more. But if something else in your build pins an
+older BouncyCastle, it fails at **runtime**, not at compile time:
 
 ```
 NoClassDefFoundError: org/bouncycastle/crypto/generators/MLDSAKeyPairGenerator
@@ -35,80 +42,20 @@ by inspecting the published jars:
 | 1.81 – 1.83 | `pqc.crypto.mldsa` only — **will not work** |
 | **1.84 and later** | `crypto.generators` — what this SDK imports |
 
-Built and tested against **1.85.2**.
-
-### Resolving from a GitHub release
-
-A bare jar carries no metadata, so Gradle cannot see this SDK's own dependency
-declarations and will silently give you whatever BouncyCastle is already on
-your classpath — which is how the error above appears with no obvious cause.
-
-Each release therefore attaches **`ivy.xml`** as well as the jar. A GitHub
-release can only be consumed through an ivy repository, and
-`IvyArtifactRepository.metadataSources` offers `gradleMetadata()`,
-`ivyDescriptor()` and `artifact()` — **but not `mavenPom()`**, which is a
-compile error rather than a silent fallback. So use the ivy descriptor:
-
-```kotlin
-repositories {
-    ivy {
-        url = uri("https://github.com/activeledger/SDK-JVM/releases/download")
-        patternLayout {
-            artifact("v[revision]/[artifact]-[revision](-[classifier])(.[ext])")
-            ivy("v[revision]/ivy-[revision].xml")
-        }
-        metadataSources { gradleMetadata(); ivyDescriptor(); artifact() }
-        content { includeGroup("io.github.activeledger") }
-    }
-    mavenCentral()   // for the transitive dependencies
-}
-```
-
-Verified by resolving it, not by reading it. That brings the whole graph:
-
-```
-io.github.activeledger:activeledger-sdk:0.4.0
-org.bouncycastle:bcprov-jdk18on:1.85.2
-com.squareup.okhttp3:okhttp:4.12.0
-com.google.code.gson:gson:2.11.0
-org.jetbrains.kotlinx:kotlinx-coroutines-core-jvm:1.9.0
-```
-
-**`gradleMetadata()` is required, not optional.** The attached `ivy.xml` is a
-stub: `ivy-publish` emits it with an empty `<configurations/>` and a marker
-deferring to Gradle Module Metadata. Without `gradleMetadata()`, Gradle reads
-the stub, finds dependencies referencing configurations it never declares, and
-fails with `Cannot add dependency ... because this configuration doesn't
-exist!`. The `.module` file is the real metadata.
-
-**The group is `io.github.activeledger`.** With the wrong group in
-`includeGroup`, the repository is simply never consulted and you get "not
-found" rather than anything diagnostic.
-
-A `.pom` is attached too, for anyone consuming from a Maven-layout mirror.
-It is *not* readable from the ivy path above — ivy repositories have no
-`mavenPom()` metadata source.
-
-Maintainers cutting a release: see [RELEASING.md](RELEASING.md). Every asset
-above is required, and a release is not done until a fresh project resolves
-it.
-
-### Runtime dependencies
-
-Beyond BouncyCastle, this SDK also needs **okhttp 4.12.0**,
-**kotlinx-coroutines-core 1.9.0** and **gson 2.11.0** at runtime. The
-resolution above brings them. If you take the artifact-only path instead, you
-must declare all four yourself, or `ActiveledgerClient` and `EventStream` fail
-with `NoClassDefFoundError` in exactly the same way ML-DSA did.
-
-Simplest alternative — declare BouncyCastle yourself and skip the metadata
-entirely:
+Built and tested against **1.85.2**. If you have to override the version,
+override it upwards:
 
 ```kotlin
 implementation("org.bouncycastle:bcprov-jdk18on:1.85.2")
 ```
 
-None of this applies once the SDK is on Maven Central, which it is not yet.
+### Runtime dependencies
+
+Beyond BouncyCastle, this SDK needs **okhttp 4.12.0**,
+**kotlinx-coroutines-core 1.9.0** and **gson 2.11.0** at runtime. Maven Central
+resolution brings all four. If you add the bare jar instead, you must declare
+them yourself, or `ActiveledgerClient` and `EventStream` fail with
+`NoClassDefFoundError` in exactly the same way ML-DSA does.
 
 ## Key types
 
