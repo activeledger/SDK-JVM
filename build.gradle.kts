@@ -1,13 +1,13 @@
 plugins {
     kotlin("jvm") version "2.0.21"
     `java-library`
-    `maven-publish`
     `ivy-publish`
     // Android compatibility is enforced at compile time, not claimed.
     // There is no Android SDK in this build and no device in CI, so the
     // only honest guarantee is that the bytecode cannot reference an API
     // that the minSdk floor lacks.
     id("ru.vyarus.animalsniffer") version "2.0.0"
+    id("com.vanniktech.maven.publish") version "0.30.0"
 }
 
 group = "io.github.activeledger"
@@ -103,43 +103,38 @@ tasks.test {
     }
 }
 
-publishing {
-    publications {
-        // An ivy descriptor as well as a POM, because the two are not
-        // interchangeable for a consumer.
-        //
-        // A GitHub release can only be consumed through an ivy repository
-        // with a patternLayout - there is no Maven layout to point at. And
-        // Gradle's IvyArtifactRepository.metadataSources offers
-        // gradleMetadata(), ivyDescriptor() and artifact(), but NOT
-        // mavenPom(): asking for it is a compile error, not a silent
-        // fallback. So a POM attached to a release is unreachable from the
-        // one path that actually needs it, and this SDK's dependency
-        // declarations - the BouncyCastle floor in particular - stay
-        // invisible.
-        //
-        // Both are published. The POM serves anyone on a Maven-layout
-        // mirror; the ivy descriptor serves the release path.
-        create<IvyPublication>("ivy") {
-            from(components["java"])
-            module = "activeledger-sdk"
-        }
+mavenPublishing {
+    // Defines coordinates: io.github.activeledger:activeledger:1.0.0
+    coordinates("io.github.activeledger", "activeledger", "1.0.0")
 
-        create<MavenPublication>("maven") {
-            from(components["java"])
-            artifactId = "activeledger-sdk"
-            pom {
-                name.set("Activeledger SDK")
-                description.set("Kotlin/Java SDK for Activeledger, with post-quantum identity support")
-                licenses {
-                    license {
-                        name.set("MIT License")
-                        url.set("https://opensource.org/licenses/MIT")
-                    }
-                }
+    pom {
+        name.set("Activeledger SDK")
+        description.set("Kotlin/JVM SDK for Activeledger")
+        inceptionYear.set("2026")
+        url.set("https://github.com/activeledger/SDK-Kotlin")
+        licenses {
+            license {
+                name.set("The Apache License, Version 2.0")
+                url.set("http://www.apache.org/licenses/LICENSE-2.0.txt")
             }
         }
+        developers {
+            developer {
+                id.set("activeledger")
+                name.set("Activeledger")
+                url.set("https://github.com/activeledger")
+            }
+        }
+        scm {
+            url.set("https://github.com/activeledger/SDK-Kotlin")
+            connection.set("scm:git:git://github.com/activeledger/SDK-Kotlin.git")
+            developerConnection.set("scm:git:ssh://github.com/activeledger/SDK-Kotlin.git")
+        }
     }
+
+    // Directs uploads to the modern Central Portal and signs artifacts
+    publishToMavenCentral(com.vanniktech.maven.publish.SonatypeHost.CENTRAL_PORTAL)
+    signAllPublications()
 }
 
 // Integration tests run against a real 4-node network served by the ledger
