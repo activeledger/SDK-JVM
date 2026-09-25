@@ -1,3 +1,8 @@
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/activeledger/activeledger/master/docs/assets/Asset-23-dark.png">
+  <img src="https://raw.githubusercontent.com/activeledger/activeledger/master/docs/assets/Asset-23.png" alt="Activeledger" width="300"/>
+</picture>
+
 # Activeledger SDK for JVM, Java and Android
 
 Kotlin SDK for [Activeledger](https://github.com/activeledger/activeledger), with post-quantum identity support.
