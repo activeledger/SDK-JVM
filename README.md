@@ -3,6 +3,9 @@
   <img src="https://raw.githubusercontent.com/activeledger/activeledger/master/docs/assets/Asset-23.png" alt="Activeledger" width="300"/>
 </picture>
 
+[![Maven Central](https://img.shields.io/maven-central/v/io.github.activeledger/activeledger)](https://central.sonatype.com/artifact/io.github.activeledger/activeledger)
+[![licence](https://img.shields.io/badge/licence-MIT-blue)](https://github.com/activeledger/SDK-JVM/blob/master/LICENSE)
+
 # Activeledger SDK for JVM, Java and Android
 
 Kotlin SDK for [Activeledger](https://github.com/activeledger/activeledger), with post-quantum identity support.
