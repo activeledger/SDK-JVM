@@ -1,3 +1,5 @@
+@file:Suppress("DEPRECATION")
+
 package io.activeledger.sdk.java
 
 import io.activeledger.sdk.Activeledger
@@ -13,7 +15,8 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 
-/** Receives events on a subscription. */
+/** Receives events on a subscription. Deprecated - see [subscribe]. */
+@Deprecated("Events are served on the node's host only; ActiveCore is deprecated. Run your own server-sent events listener on the node's host. Removed in the next major version.")
 fun interface EventListener {
     fun onEvent(event: LedgerEvent)
 }
@@ -58,7 +61,13 @@ class ActiveledgerClient(baseUrl: String) : AutoCloseable {
      * Closing the returned [Subscription] cancels collection, which closes
      * the HTTP connection - the same guarantee the Flow gives Kotlin callers,
      * rather than leaving it to the caller to remember.
+     *
+     * @deprecated ActiveCore is deprecated and no longer serves events; a
+     * node's own events feed is reachable only from the node's host. Run your
+     * own server-sent events listener there. Removed in the next major
+     * version.
      */
+    @Deprecated("Events are served on the node's host only; ActiveCore is deprecated. Run your own server-sent events listener on the node's host. Removed in the next major version.")
     @JvmOverloads
     fun subscribe(listener: EventListener, path: String = "/events"): Subscription {
         val job = scope.launch {

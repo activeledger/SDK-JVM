@@ -1,3 +1,5 @@
+@file:Suppress("DEPRECATION")
+
 package io.activeledger.sdk
 
 import io.activeledger.sdk.events.EventStream
@@ -20,5 +22,7 @@ import io.activeledger.sdk.events.EventStream
  */
 class Activeledger(baseUrl: String) {
     val connection: Connection = Connection(baseUrl)
+    /** Deprecated - see [EventStream]. */
+    @Deprecated("Events are served on the node's host only; ActiveCore is deprecated. Run your own server-sent events listener on the node's host. Removed in the next major version.")
     val events: EventStream = EventStream(connection)
 }
