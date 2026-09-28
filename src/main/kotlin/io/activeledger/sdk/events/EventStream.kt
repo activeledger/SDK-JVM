@@ -9,7 +9,16 @@ import kotlinx.coroutines.Dispatchers
 import okhttp3.Request
 import okhttp3.Response
 
-/** One server-sent event. */
+/**
+ * One server-sent event.
+ *
+ * @deprecated ActiveCore is deprecated and no longer serves events. A node
+ * serves contract events from its own storage service, which must never be
+ * reachable beyond the node's host, so a client has nothing it should connect
+ * to. Run your own server-sent events listener on the node's host instead.
+ * This will be removed in the next major version.
+ */
+@Deprecated("Events are served on the node's host only; ActiveCore is deprecated. Run your own server-sent events listener on the node's host. Removed in the next major version.")
 data class LedgerEvent(val name: String?, val data: String, val id: String?)
 
 /**
@@ -26,7 +35,15 @@ data class LedgerEvent(val name: String?, val data: String, val id: String?)
  * lines in one event concatenate with newlines, a line starting `:` is a
  * comment (used as a heartbeat and easy to mistake for an event), and a blank
  * line dispatches.
+ *
+ * @deprecated ActiveCore is deprecated and no longer serves events. A node
+ * serves contract events from its own storage service, which must never be
+ * reachable beyond the node's host, so a client has nothing it should connect
+ * to. Run your own server-sent events listener on the node's host instead.
+ * This will be removed in the next major version.
  */
+@Deprecated("Events are served on the node's host only; ActiveCore is deprecated. Run your own server-sent events listener on the node's host. Removed in the next major version.")
+@Suppress("DEPRECATION")
 class EventStream internal constructor(private val connection: Connection) {
 
     fun subscribe(path: String = "/events"): Flow<LedgerEvent> = callbackFlow {

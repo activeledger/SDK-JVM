@@ -182,11 +182,6 @@ suspend fun main() {
 
     val response = ledger.connection.submit(tx)
     check(response.committed) { "rejected: ${response.errors}" }
-
-    // Subscribe to events
-    ledger.events.subscribe().collect { event ->
-        println("${event.name}: ${event.data}")
-    }
 }
 ```
 
@@ -218,19 +213,28 @@ public class Example {
             if (!response.getCommitted()) {
                 throw new IllegalStateException("rejected: " + response.getErrors());
             }
-
-            try (var subscription = client.subscribe(event ->
-                    System.out.println(event.getName() + ": " + event.getData()))) {
-                Thread.sleep(10_000);
-            }
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
         }
     }
 }
 ```
 
-Blocking calls, listener-based events. Same implementation underneath.
+Blocking calls. Same implementation underneath.
+
+## Events - deprecated
+
+`EventStream` (`ledger.events`) and `ActiveledgerClient.subscribe` are
+**deprecated** and will be removed in the next major version.
+
+Events are no longer served by ActiveCore, which is itself deprecated and
+should not be used. A node serves contract events from its own storage
+service at `http://localhost:<storage port>/activeledgerevents/events`, and
+that service must never be reachable beyond the node's host - so a client
+SDK has nothing it should connect to.
+
+To react to events, run your own server-sent events listener on the node's
+host and relay what your application needs through your own backend. Each
+event is an SSE frame whose `id` is `<milliseconds>-<counter>,<umid>` and
+whose `data` is `{"name", "data", "phase", "contract"}`.
 
 ## Reading state
 
