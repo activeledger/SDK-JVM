@@ -40,6 +40,42 @@ resolves this SDK from `build/libs` and never once reads what we published.
 
 ## Cutting a release
 
+```
+gh workflow run release.yml -f version=1.1.0
+```
+
+That is the whole procedure. `.github/workflows/release.yml` runs the tests,
+bumps `build.gradle.kts`, commits, tags, pushes, publishes to Maven Central,
+attaches the jars to a GitHub release, and then **resolves the coordinate from
+a separate scratch project** before reporting success.
+
+It is dispatched by hand rather than triggered by a tag because GitHub does
+not start new workflow runs from events created with the default
+`GITHUB_TOKEN` — a `on: push: tags` trigger never fires for a tag a workflow
+pushed. Bumping before tagging is what keeps the source tree, the tag and the
+published artifact all reporting the same number.
+
+**Maven Central changed what a consumer needs.** They now write
+`mavenCentral()` and one coordinate. The ivy `patternLayout` block, the
+`gradleMetadata()` ordering and the five hand-attached assets that the rest of
+this document describes are no longer how anyone consumes this SDK. That
+history is kept below because the rule it produced still governs the workflow's
+last job.
+
+### If Central credentials are missing
+
+The publish job is skipped, not failed, and says so with a warning. The GitHub
+release still stands. Needed:
+`MAVEN_CENTRAL_USERNAME`, `MAVEN_CENTRAL_PASSWORD`, `MAVEN_GPG_PRIVATE_KEY`,
+`MAVEN_GPG_PASSPHRASE`. Central rejects an entire bundle if one artifact is
+unsigned, so the GPG key is not optional.
+
+### Doing it by hand
+
+Only if the workflow cannot run. The manual steps are unchanged:
+
+
+
 The version lives in one place: `version` in `build.gradle.kts`. The Maven
 Central coordinates, the ivy publication and the jar names all read it.
 Bump it there, then commit.

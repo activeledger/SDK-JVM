@@ -1,0 +1,159 @@
+# Cuts a release: test -> bump -> commit -> tag -> push -> publish -> verify.
+#
+# Dispatched by hand with a version rather than triggered by a tag. GitHub does
+# not start new workflow runs from events created with the default
+# GITHUB_TOKEN, so `on: push: tags` never fires for a tag a workflow pushed.
+#
+# This repository has the most expensive history of "published but unusable":
+# v0.2.1 took four attempts, each one a correct artifact joined wrongly to the
+# consumer. RELEASING.md has the detail. Maven Central makes most of that moot
+# - a consumer now just needs mavenCentral() - but the rule it produced still
+# holds: publishing is not done when the artifact is uploaded, it is done when
+# a fresh project can resolve it. That is the last job here.
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to release, without the leading v (e.g. 1.1.0)"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ inputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Test
+        run: ./gradlew build
+
+      - name: Bump
+        run: |
+          set -eu
+          v="${{ inputs.version }}"
+          sed -i "0,/^version = \".*\"/s//version = \"$v\"/" build.gradle.kts
+          grep -q "^version = \"$v\"$" build.gradle.kts
+
+      - name: Commit, tag and push
+        run: |
+          set -eu
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git commit -am "chore(release): v${{ inputs.version }}"
+          git tag -a "v${{ inputs.version }}" -m "v${{ inputs.version }}"
+          git push origin HEAD:master
+          git push origin "v${{ inputs.version }}"
+
+      # Attached to the GitHub release as well as Central, so the release page
+      # is self-contained for anyone not using a Maven resolver.
+      - name: Build release assets
+        run: ./gradlew jar sourcesJar
+
+      - name: GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "v${{ inputs.version }}" \
+            --title "v${{ inputs.version }}" --generate-notes \
+            build/libs/*.jar
+
+  publish:
+    needs: release
+    runs-on: ubuntu-latest
+    outputs:
+      # The `secrets` context is not available in a job-level `if`, so verify
+      # gates on this rather than on the credentials directly - that condition
+      # would evaluate empty and skip silently.
+      published: ${{ steps.push.outcome == 'success' }}
+    env:
+      CREDS_SET: ${{ secrets.MAVEN_CENTRAL_USERNAME != '' && secrets.MAVEN_GPG_PRIVATE_KEY != '' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: "v${{ needs.release.outputs.version }}"
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      # Central requires every artifact to be GPG signed, and rejects the whole
+      # bundle if one is not. The Vanniktech plugin in build.gradle.kts handles
+      # signing; it only needs the key.
+      - name: Publish to Maven Central
+        id: push
+        if: ${{ env.CREDS_SET == 'true' }}
+        env:
+          ORG_GRADLE_PROJECT_mavenCentralUsername: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
+          ORG_GRADLE_PROJECT_mavenCentralPassword: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
+          ORG_GRADLE_PROJECT_signingInMemoryKey: ${{ secrets.MAVEN_GPG_PRIVATE_KEY }}
+          ORG_GRADLE_PROJECT_signingInMemoryKeyPassword: ${{ secrets.MAVEN_GPG_PASSPHRASE }}
+        run: ./gradlew publishAndReleaseToMavenCentral --no-configuration-cache
+
+      - name: Say so when skipped
+        if: ${{ env.CREDS_SET != 'true' }}
+        run: echo "::warning::Maven Central credentials or GPG key not set - skipped Central"
+
+  verify:
+    needs: [release, publish]
+    if: ${{ needs.publish.outputs.published == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      # A separate project, deliberately - this repository's own build resolves
+      # the SDK from build/libs and never reads what was published, which is
+      # precisely why it could not see any of the four v0.2.1 defects.
+      - name: Resolve from Maven Central as a consumer
+        run: |
+          set -eu
+          v="${{ needs.release.outputs.version }}"
+          mkdir consumer && cd consumer
+          cat > settings.gradle.kts <<'EOF'
+          rootProject.name = "consumer"
+          EOF
+          cat > build.gradle.kts <<EOF
+          plugins { \`java-library\` }
+          repositories { mavenCentral() }
+          dependencies { implementation("io.github.activeledger:activeledger:$v") }
+          tasks.register("verifyResolution") {
+              doLast {
+                  val resolved = configurations.runtimeClasspath.get()
+                      .resolvedConfiguration.resolvedArtifacts
+                      .map { "\${it.moduleVersion.id.group}:\${it.moduleVersion.id.name}" }
+                      .toSet()
+                  // Every declared runtime dependency must arrive. A missing one
+                  // is a NoClassDefFoundError in someone's application, never a
+                  // failure here - which is exactly why it needs asserting.
+                  val required = listOf(
+                      "io.github.activeledger:activeledger",
+                      "org.bouncycastle:bcprov-jdk18on",
+                      "com.squareup.okhttp3:okhttp",
+                      "com.google.code.gson:gson",
+                      "org.jetbrains.kotlinx:kotlinx-coroutines-core-jvm")
+                  val missing = required.filterNot { it in resolved }
+                  resolved.sorted().forEach { println("  resolved: \$it") }
+                  if (missing.isNotEmpty())
+                      throw GradleException("Central did not serve: \${missing.joinToString()}")
+              }
+          }
+          EOF
+          # Central's CDN takes a few minutes to serve a freshly released
+          # version, so retry rather than fail on the first miss.
+          for i in $(seq 1 15); do
+            gradle --no-daemon -q verifyResolution && exit 0
+            echo "not on Central yet (attempt $i)"; sleep 30
+          done
+          echo "::error::v$v never became resolvable from Maven Central"; exit 1
