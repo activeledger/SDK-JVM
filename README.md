@@ -8,7 +8,7 @@
 
 # Activeledger SDK for JVM, Java and Android
 
-Kotlin SDK for [Activeledger](https://github.com/activeledger/activeledger), with post-quantum identity support.
+Kotlin SDK for [Activeledger](https://github.com/activeledger/activeledger). Identities can be post-quantum (ML-DSA-65, Falcon-512) or classical (secp256k1).
 
 One artefact serves Kotlin, Java and Android. Replaces `SDK-Kotlin`, `SDK-Java` and `SDK-Android`, none of which supported post-quantum identities.
 
@@ -75,7 +75,9 @@ them yourself, or `ActiveledgerClient` and `EventStream` fail with
 | ML-DSA-65 | `ml-dsa-65` | 1952 bytes | 3309 bytes |
 | Falcon-512 | `falcon-512` | 897 bytes | 649-662 bytes, variable |
 | secp256k1 | `secp256k1` | 33 or 65 bytes | ~70-72 bytes DER, variable |
-| RSA | `rsa` | — | — |
+| RSA | `rsa` | not supported | not supported |
+
+**RSA is not implemented.** `KeyType.RSA` exists only so a wire string read from the ledger can be named; `KeyPair.generate`, `sign` and `verify` throw `UnsupportedOperationException` for it. Use ML-DSA-65, Falcon-512 or secp256k1.
 
 Post-quantum keys are base64 of raw algorithm bytes. Falcon signature length **varies** — nothing may assume it fixed.
 
@@ -168,7 +170,7 @@ import io.activeledger.sdk.tx.Transaction
 suspend fun main() {
     val ledger = Activeledger("http://localhost:5260")
 
-    // Onboard a post-quantum identity
+    // Onboard a post-quantum identity (KeyType.SECP256K1 works the same way)
     val key = KeyPair.generate(KeyType.ML_DSA_65)
     val identity = ledger.connection.onboard(key)
     println("identity: ${identity.streamId}")
@@ -235,6 +237,10 @@ To react to events, run your own server-sent events listener on the node's
 host and relay what your application needs through your own backend. Each
 event is an SSE frame whose `id` is `<milliseconds>-<counter>,<umid>` and
 whose `data` is `{"name", "data", "phase", "contract"}`.
+
+The builder covers `$namespace`, `$contract`, `$entry`, `$i`, `$o` and `$r`.
+It has no method for `$expire`, so a transaction cannot set an expiry through
+this SDK.
 
 ## Reading state
 
