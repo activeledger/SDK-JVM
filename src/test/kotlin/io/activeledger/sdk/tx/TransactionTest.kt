@@ -166,4 +166,61 @@ class TransactionTest {
             .build()
         assertEquals("hi", tx.body.getObject("\$o").getObject("target").getString("message"))
     }
+
+    // $r is how state is read; it must be signed along with everything else
+    // and absent when unused.
+    @Test
+    fun `readonly streams are written to r and covered by the signature`() {
+        val tx = Transaction.builder()
+            .namespace("d").contract("c")
+            .input("s", key)
+            .readonly("balance", "stream-9")
+            .build()
+        assertEquals("stream-9", tx.body.getObject("\$r").getString("balance"))
+        assertTrue(String(tx.signedBytes(), Charsets.UTF_8).contains("\"\$r\":{\"balance\":\"stream-9\"}"))
+
+        val plain = Transaction.builder().namespace("d").contract("c").input("s", key).build()
+        assertTrue(!plain.toJson().contains("\$r"))
+    }
+
+    @Test
+    fun `payload values of every supported type are serialised canonically`() {
+        val tx = Transaction.builder()
+            .namespace("d").contract("c")
+            .input(
+                "s", key,
+                linkedMapOf(
+                    "text" to "t",
+                    "int" to 1,
+                    "long" to 2L,
+                    "double" to 1.5,
+                    "flag" to true,
+                    "nothing" to null,
+                    "nested" to JsonObject().put("k", "v"),
+                ),
+            )
+            .build()
+        assertEquals(
+            "{\"text\":\"t\",\"int\":1,\"long\":2,\"double\":1.5,\"flag\":true,\"nothing\":null,\"nested\":{\"k\":\"v\"}}",
+            CanonicalJson.stringify(tx.body.getObject("\$i").getObject("s")),
+        )
+    }
+
+    @Test
+    fun `unsupported payload types are refused for outputs too`() {
+        assertFailsWith<IllegalArgumentException> {
+            Transaction.builder().namespace("d").contract("c").input("s", key)
+                .output("o", mapOf("list" to listOf(1, 2)))
+        }
+    }
+
+    @Test
+    fun `a signing failure for an rsa input surfaces rather than producing a blank signature`() {
+        val blob = Base64.getEncoder().encodeToString(ByteArray(32))
+        val rsa = KeyPair.fromKeys(KeyType.RSA, blob, blob)
+        assertFailsWith<UnsupportedOperationException> { Transaction.onboard(rsa) }
+        assertFailsWith<UnsupportedOperationException> {
+            Transaction.builder().namespace("d").contract("c").input("s", rsa).build()
+        }
+    }
 }
