@@ -184,8 +184,13 @@ object Secp256k1 {
             "secp256k1 $what key has an odd number of hex digits (${body.length})"
         }
 
+        // toInt(16) alone accepts a sign character, so "-1" would decode.
         return try {
-            ByteArray(body.length / 2) { body.substring(it * 2, it * 2 + 2).toInt(16).toByte() }
+            ByteArray(body.length / 2) {
+                val pair = body.substring(it * 2, it * 2 + 2)
+                if (!pair.all { c -> Character.digit(c, 16) >= 0 && c.code < 128 }) throw NumberFormatException(pair)
+                pair.toInt(16).toByte()
+            }
         } catch (e: NumberFormatException) {
             throw IllegalArgumentException("secp256k1 $what key is not valid hex", e)
         }
@@ -208,6 +213,14 @@ object Secp256k1 {
         require(ok) {
             "secp256k1 public key starts with 0x%02x, which does not match its length of %d bytes "
                 .format(prefix, bytes.size) + "(expected 0x02/0x03 for 33, 0x04 for 65)"
+        }
+
+        // The shape is not enough: a point off the curve (invalid-curve
+        // attack material) must not be accepted as a key.
+        try {
+            domain.curve.decodePoint(bytes)
+        } catch (e: IllegalArgumentException) {
+            throw IllegalArgumentException("secp256k1 public key is not a point on the curve", e)
         }
     }
 }

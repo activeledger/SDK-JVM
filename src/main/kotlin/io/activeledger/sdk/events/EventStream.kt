@@ -6,8 +6,10 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import okhttp3.Request
-import okhttp3.Response
+import java.io.IOException
+import java.util.concurrent.TimeUnit
 
 /**
  * One server-sent event.
@@ -54,50 +56,62 @@ class EventStream internal constructor(private val connection: Connection) {
             .get()
             .build()
 
-        val call = connection.httpClient().newCall(request)
-        var response: Response? = null
+        // A quiet event stream is not a dead one, so the client's read
+        // timeout (30s by default) must not apply here.
+        val call = connection.httpClient().newBuilder()
+            .readTimeout(0, TimeUnit.MILLISECONDS)
+            .build()
+            .newCall(request)
 
-        try {
-            response = call.execute()
-            val source = response.body?.source()
-                ?: throw IllegalStateException("Event stream returned no body")
+        // The blocking read runs in a child so that awaitClose is reached at
+        // once and can cancel the call; a blocked socket read does not
+        // respond to coroutine cancellation by itself.
+        launch(Dispatchers.IO) {
+            try {
+                call.execute().use { response ->
+                    if (!response.isSuccessful) {
+                        throw IOException("Event stream returned HTTP ${response.code}")
+                    }
+                    val source = response.body?.source()
+                        ?: throw IllegalStateException("Event stream returned no body")
 
-            var eventName: String? = null
-            var eventId: String? = null
-            val data = StringBuilder()
+                    var eventName: String? = null
+                    var eventId: String? = null
+                    val data = StringBuilder()
 
-            while (!source.exhausted()) {
-                val line = source.readUtf8LineStrict()
+                    while (!source.exhausted()) {
+                        val line = source.readUtf8LineStrict()
 
-                when {
-                    // Blank line dispatches whatever has accumulated.
-                    line.isEmpty() -> {
-                        if (data.isNotEmpty()) {
-                            trySend(LedgerEvent(eventName, data.toString().removeSuffix("\n"), eventId))
-                            data.setLength(0)
-                            eventName = null
-                            eventId = null
+                        when {
+                            // Blank line dispatches whatever has accumulated.
+                            line.isEmpty() -> {
+                                if (data.isNotEmpty()) {
+                                    trySend(LedgerEvent(eventName, data.toString().removeSuffix("\n"), eventId))
+                                    data.setLength(0)
+                                    eventName = null
+                                    eventId = null
+                                }
+                            }
+                            // Comment or heartbeat. Ignored deliberately: emitting
+                            // these as events is a classic SSE bug, and heartbeats
+                            // are frequent.
+                            line.startsWith(":") -> Unit
+                            line.startsWith("event:") -> eventName = line.removePrefix("event:").trim()
+                            line.startsWith("id:") -> eventId = line.removePrefix("id:").trim()
+                            line.startsWith("data:") -> data.append(line.removePrefix("data:").trim()).append('\n')
                         }
                     }
-                    // Comment or heartbeat. Ignored deliberately: emitting
-                    // these as events is a classic SSE bug, and heartbeats
-                    // are frequent.
-                    line.startsWith(":") -> Unit
-                    line.startsWith("event:") -> eventName = line.removePrefix("event:").trim()
-                    line.startsWith("id:") -> eventId = line.removePrefix("id:").trim()
-                    line.startsWith("data:") -> data.append(line.removePrefix("data:").trim()).append('\n')
                 }
+                close()
+            } catch (e: Exception) {
+                close(e)
             }
-            close()
-        } catch (e: Exception) {
-            close(e)
         }
 
         awaitClose {
             // The whole reason this is a Flow. Cancelling the collector
             // closes the connection rather than leaving the node holding it.
             call.cancel()
-            response?.close()
         }
     }.flowOn(Dispatchers.IO)
 }

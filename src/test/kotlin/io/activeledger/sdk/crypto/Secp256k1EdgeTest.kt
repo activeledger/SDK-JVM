@@ -68,9 +68,11 @@ class Secp256k1EdgeTest {
 
     @Test
     fun `checkPublic accepts both compressed prefixes and the uncompressed one`() {
-        Secp256k1.checkPublic(ByteArray(33).also { it[0] = 0x02 })
-        Secp256k1.checkPublic(ByteArray(33).also { it[0] = 0x03 })
-        Secp256k1.checkPublic(ByteArray(65).also { it[0] = 0x04 })
+        val g = Secp256k1.domain.g
+        val compressed = g.getEncoded(true)
+        Secp256k1.checkPublic(compressed)
+        Secp256k1.checkPublic(compressed.also { it[0] = (if (it[0].toInt() == 0x02) 0x03 else 0x02).toByte() }) // -G
+        Secp256k1.checkPublic(g.getEncoded(false))
     }
 
     @Test
@@ -106,15 +108,10 @@ class Secp256k1EdgeTest {
         }
     }
 
-    // fromPublic checks shape, not curve membership; verification is where a
-    // point that is not on the curve is caught, and it must say false.
     @Test
-    fun `a well shaped point that is not on the curve verifies nothing`() {
+    fun `a well shaped point that is not on the curve is refused on import`() {
         val offCurve = "0x04" + "00".repeat(31) + "01" + "00".repeat(31) + "01"
-        val key = KeyPair.fromPublic(KeyType.SECP256K1, offCurve)
-        val real = KeyPair.generate(KeyType.SECP256K1)
-        val message = byteArrayOf(1, 2, 3)
-        assertFalse(key.verify(message, real.sign(message)))
+        assertFailsWith<IllegalArgumentException> { KeyPair.fromPublic(KeyType.SECP256K1, offCurve) }
     }
 
     @Test
@@ -124,5 +121,31 @@ class Secp256k1EdgeTest {
             KeyPair.fromKeys(KeyType.SECP256K1, real.exportPublic(), "0x" + "11".repeat(31))
         }
         assertTrue(error.message!!.contains("32"), error.message!!)
+    }
+
+    @Test
+    fun `sign characters are not hex digits`() {
+        for (bad in listOf("0x-1+f", "0x+1", "0x-1", "0x1-")) {
+            assertFailsWith<IllegalArgumentException>(bad) { Secp256k1.fromHex(bad, "public") }
+        }
+    }
+
+    // SEC1 allows only points on the curve; an invalid-curve point must not
+    // be accepted as a public key.
+    @Test
+    fun `an uncompressed point that is not on the curve is rejected`() {
+        val g = Secp256k1.domain.g.normalize()
+        val x = g.affineXCoord.encoded
+        val y = g.affineYCoord.toBigInteger().add(java.math.BigInteger.ONE).toByteArray().takeLast(32).toByteArray()
+        val off = byteArrayOf(0x04) + x + y
+        assertFailsWith<IllegalArgumentException> { Secp256k1.checkPublic(off) }
+        assertFailsWith<IllegalArgumentException> {
+            KeyPair.fromPublic(KeyType.SECP256K1, Secp256k1.toHex(off))
+        }
+    }
+
+    @Test
+    fun `the generator point is accepted`() {
+        Secp256k1.checkPublic(Secp256k1.domain.g.getEncoded(false))
     }
 }

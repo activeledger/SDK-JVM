@@ -3,7 +3,11 @@
 package io.activeledger.sdk.events
 
 import io.activeledger.sdk.Activeledger
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.toList
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import okhttp3.mockwebserver.MockResponse
@@ -123,5 +127,72 @@ class EventStreamFailureTest {
         assertEquals(1, events.size)
         assertEquals("crlf", events[0].data)
         assertEquals("commit", events[0].name)
+    }
+
+    @Test
+    fun `a non-200 reply fails the flow instead of being parsed as events`() {
+        server.enqueue(MockResponse().setResponseCode(502).setBody("data: not-an-event\n\n"))
+        val seen = mutableListOf<String>()
+        val error = assertFailsWith<IOException> {
+            runBlocking { withTimeout(10_000) { ledger().events.subscribe().collect { seen.add(it.data) } } }
+        }
+        assertTrue(error.message!!.contains("502"), error.message!!)
+        assertTrue(seen.isEmpty())
+    }
+
+    // The stream is open and silent; cancelling the collector has to close
+    // the connection even though the read is blocked. A raw socket node lets
+    // the test see the client hang up.
+    @Test
+    fun `cancelling the collector closes a quiet connection`() = runBlocking {
+        val node = java.net.ServerSocket(0)
+        val hungUp = java.util.concurrent.CountDownLatch(1)
+        val delivered = java.util.concurrent.CountDownLatch(1)
+        val acceptor = Thread {
+            try {
+                node.accept().use { socket ->
+                    val input = socket.getInputStream()
+                    val reader = input.bufferedReader()
+                    while (reader.readLine().let { it != null && it.isNotEmpty() }) { /* request head */ }
+                    socket.getOutputStream().write(
+                        "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nConnection: close\r\n\r\ndata: first\n\n"
+                            .toByteArray(),
+                    )
+                    socket.getOutputStream().flush()
+                    delivered.countDown()
+                    while (input.read() != -1) { /* discard until the client leaves */ }
+                    hungUp.countDown()
+                }
+            } catch (e: java.io.IOException) {
+                hungUp.countDown()
+            }
+        }
+        acceptor.isDaemon = true
+        acceptor.start()
+        try {
+            val first = kotlinx.coroutines.CompletableDeferred<Unit>()
+            val job = launch(Dispatchers.IO) {
+                Activeledger("http://127.0.0.1:${node.localPort}").events.subscribe().collect { first.complete(Unit) }
+            }
+            withTimeout(5000) { first.await() }
+            job.cancel()
+            assertTrue(hungUp.await(5, TimeUnit.SECONDS), "the client never closed the connection")
+        } finally {
+            node.close()
+        }
+    }
+
+    @Test
+    fun `the default client read timeout does not apply to the stream`() = runBlocking {
+        val short = okhttp3.OkHttpClient.Builder().readTimeout(200, TimeUnit.MILLISECONDS).build()
+        server.enqueue(
+            MockResponse()
+                .setHeader("Content-Type", "text/event-stream")
+                .setBody("data: late\n\n")
+                .setBodyDelay(800, TimeUnit.MILLISECONDS),
+        )
+        val stream = EventStream(io.activeledger.sdk.Connection(server.url("/").toString(), short))
+        val events = withTimeout(10_000) { stream.subscribe().toList() }
+        assertEquals(listOf("late"), events.map { it.data })
     }
 }
