@@ -144,4 +144,52 @@ class ConnectionTest {
         server.shutdown()
         assertFailsWith<java.io.IOException> { runBlocking { Connection(url).submitRaw("{}") } }
     }
+
+    @Test
+    fun `a body that is not a JSON object is reported as not committed without throwing`() {
+        for (body in listOf("", "<html>502 Bad Gateway</html>", "null", "[]", "42", "\"text\"")) {
+            val r = LedgerResponse(body)
+            assertEquals(false, r.committed, body)
+            assertTrue(r.errors.isNotEmpty(), body)
+            assertEquals(emptyList(), r.newStreams, body)
+            assertEquals(emptyList(), r.responses(), body)
+        }
+    }
+
+    @Test
+    fun `a malformed summary does not make the getters throw`() {
+        val r = LedgerResponse("""{"${'$'}summary":{"errors":"oops"},"${'$'}streams":{"new":[5]}}""")
+        assertEquals(false, r.committed)
+        assertEquals(emptyList(), r.newStreams)
+    }
+
+    @Test
+    fun `a non-2xx status is not committed even with an empty object body`() {
+        server.enqueue(reply("{}").setResponseCode(502))
+        val r = runBlocking { connection().submitRaw("{}") }
+        assertEquals(false, r.committed)
+        assertTrue(r.errors.any { it.contains("502") }, r.errors.toString())
+    }
+
+    @Test
+    fun `an HTML 502 from submitRaw is reported rather than thrown`() {
+        server.enqueue(MockResponse().setResponseCode(502).setBody("<html>Bad Gateway</html>"))
+        val r = runBlocking { connection().submitRaw("{}") }
+        assertEquals(false, r.committed)
+    }
+
+    @Test
+    fun `a ledger rejection delivered as HTTP 200 still lists its errors`() {
+        server.enqueue(reply("""{"${'$'}summary":{"errors":["1220: Signature Incorrect"]}}"""))
+        val r = runBlocking { connection().submitRaw("{}") }
+        assertEquals(listOf("1220: Signature Incorrect"), r.errors)
+    }
+
+    @Test
+    fun `onboard throws a clear error on an HTML 502`() {
+        server.enqueue(MockResponse().setResponseCode(502).setBody("<html>Bad Gateway</html>"))
+        assertFailsWith<IllegalStateException> {
+            runBlocking { connection().onboard(KeyPair.generate(KeyType.SECP256K1)) }
+        }
+    }
 }

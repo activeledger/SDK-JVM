@@ -1,5 +1,6 @@
 package io.activeledger.sdk
 
+import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 import io.activeledger.sdk.crypto.KeyPair
 import io.activeledger.sdk.tx.Transaction
@@ -11,36 +12,69 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.util.concurrent.TimeUnit
 
-/** The ledger's reply to a submitted transaction. */
-class LedgerResponse internal constructor(val raw: String) {
-    private val root by lazy { JsonParser.parseString(raw).asJsonObject }
+/**
+ * The ledger's reply to a submitted transaction.
+ *
+ * A reply that is not a JSON object (an empty body, an HTML error page from a
+ * proxy, `null`, an array), or that came with a non-2xx HTTP status, is
+ * reported as not committed with an entry in [errors]. The getters never throw.
+ */
+class LedgerResponse internal constructor(val raw: String, private val status: Int = 200) {
+    private val root: JsonObject? by lazy {
+        try {
+            JsonParser.parseString(raw) as? JsonObject
+        } catch (e: RuntimeException) {
+            null
+        }
+    }
+
+    private val httpOk get() = status in 200..299
 
     /** Stream ids created by this transaction, in the order returned. */
     val newStreams: List<String>
-        get() = root.getAsJsonObject("\$streams")
-            ?.getAsJsonArray("new")
-            ?.map { it.asJsonObject.get("id").asString }
-            ?: emptyList()
+        get() = try {
+            root?.getAsJsonObject("\$streams")
+                ?.getAsJsonArray("new")
+                ?.map { it.asJsonObject.get("id").asString }
+                ?: emptyList()
+        } catch (e: RuntimeException) {
+            emptyList()
+        }
 
     /**
      * Errors the network reported.
      *
-     * Present and non-empty means the transaction did **not** commit, even
-     * though the HTTP status was 200. The ledger answers 200 for a rejected
-     * transaction, so treating HTTP success as ledger success is wrong and
-     * is a mistake worth failing loudly on rather than discovering later.
+     * Present and non-empty means the transaction did **not** commit. The
+     * ledger answers HTTP 200 for a rejected transaction, so those arrive in
+     * the body's `$summary`; a non-2xx status or a body that is not a JSON
+     * object adds an entry here as well, because neither is a commit.
      */
     val errors: List<String>
-        get() = root.getAsJsonObject("\$summary")
-            ?.getAsJsonArray("errors")
-            ?.map { it.asString }
-            ?: emptyList()
+        get() {
+            val body = root
+            val reported = try {
+                body?.getAsJsonObject("\$summary")
+                    ?.getAsJsonArray("errors")
+                    ?.map { it.asString }
+                    ?: emptyList()
+            } catch (e: RuntimeException) {
+                listOf("unreadable \$summary.errors in response")
+            }
+            val extra = ArrayList<String>()
+            if (!httpOk) extra.add("HTTP $status")
+            if (body == null) extra.add("response is not a JSON object")
+            return reported + extra
+        }
 
     val committed: Boolean get() = errors.isEmpty()
 
     /** Values a contract returned via returnToRemote(). */
-    fun responses(): List<com.google.gson.JsonObject> =
-        root.getAsJsonArray("\$responses")?.mapNotNull { it as? com.google.gson.JsonObject } ?: emptyList()
+    fun responses(): List<JsonObject> =
+        try {
+            root?.getAsJsonArray("\$responses")?.mapNotNull { it as? JsonObject } ?: emptyList()
+        } catch (e: RuntimeException) {
+            emptyList()
+        }
 
     override fun toString(): String = raw
 }
@@ -90,7 +124,7 @@ class Connection @JvmOverloads constructor(
             .post(body.toRequestBody(json))
             .build()
         client.newCall(request).execute().use { response ->
-            LedgerResponse(response.body?.string().orEmpty())
+            LedgerResponse(response.body?.string().orEmpty(), response.code)
         }
     }
 
@@ -106,8 +140,9 @@ class Connection @JvmOverloads constructor(
         private fun defaultClient(): OkHttpClient = OkHttpClient.Builder()
             .connectTimeout(10, TimeUnit.SECONDS)
             .readTimeout(30, TimeUnit.SECONDS)
-            // No read timeout cap on SSE - event streams are long-lived by
-            // design, and a read timeout would close them mid-subscription.
+            // Ordinary calls time out after 30s. EventStream does not use
+            // this: it derives a client with no read timeout, because a quiet
+            // event stream is long-lived by design.
             .build()
     }
 }
