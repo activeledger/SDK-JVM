@@ -223,9 +223,9 @@ class Secp256k1Test {
     fun `a scalar with leading zero bytes round-trips`() {
         val scalar = ByteArray(32).also { it[31] = 0x2a }
         val hex = "0x" + scalar.joinToString("") { "%02x".format(it) }
-        val generated = KeyPair.generate(KeyType.SECP256K1)
+        val derived = KeyPair.fromSeed(KeyType.SECP256K1, scalar)
 
-        val restored = KeyPair.fromKeys(KeyType.SECP256K1, generated.exportPublic(), hex)
+        val restored = KeyPair.fromKeys(KeyType.SECP256K1, derived.exportPublic(), hex)
         assertEquals(hex, restored.exportPrivate())
         assertEquals(66, restored.exportPrivate().length)
     }

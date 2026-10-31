@@ -267,7 +267,7 @@ response.responses().forEach { println(it) }  // whatever returnToRemote sent
 
 **Always send the key type.** The ledger defaults a missing `type` to `"rsa"` and then attempts RSA verification against a base64 post-quantum blob. The SDK always sends it; if you build an envelope by hand, do the same.
 
-**A rejected transaction is HTTP 200.** Check `response.committed`, not the status code. `committed` is also false, with an entry in `errors`, when the HTTP status is not 2xx or the body is not a JSON object (an empty body, a proxy's HTML error page); the getters never throw.
+**A rejected transaction is HTTP 200.** Check `response.committed`, not the status code. A reply is `committed` only if the HTTP status is 2xx, the body is a JSON object, it contains a `$summary` object, and `$summary.errors` is absent or empty. Otherwise `committed` is false, with an entry in `errors`: a non-2xx status, an empty body, `{}`, a proxy's HTML error page. The getters never throw.
 
 **Errors are unhelpful by design.** A wrong type string, a wrong-length key, or bytes that differ by one escape all surface as **1220 "Signature Incorrect"** — never as "unknown algorithm" or "bad key length". The SDK validates key lengths and type strings up front so these fail here, with a message naming the problem, rather than at a node.
 

@@ -37,7 +37,7 @@ fun main() {
     val server = MockWebServer()
     server.start()
     try {
-        server.enqueue(MockResponse().setBody("""{"${'$'}streams":{"new":[{"id":"stream-1"}]}}"""))
+        server.enqueue(MockResponse().setBody("""{"${'$'}summary":{"total":1,"vote":1,"commit":1},"${'$'}streams":{"new":[{"id":"stream-1"}]}}"""))
         server.enqueue(MockResponse().setBody("""{"${'$'}summary":{"errors":["1220: Signature Incorrect"]}}"""))
         val connection = Connection(server.url("/").toString())
 

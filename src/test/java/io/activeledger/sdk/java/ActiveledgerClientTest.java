@@ -45,7 +45,7 @@ class ActiveledgerClientTest {
 
     @Test
     void submitRawBlocksAndReturnsTheParsedResponse() throws Exception {
-        server.enqueue(new MockResponse().setBody("{\"$streams\":{\"new\":[{\"id\":\"s1\"}]}}"));
+        server.enqueue(new MockResponse().setBody("{\"$summary\":{\"total\":1,\"vote\":1,\"commit\":1},\"$streams\":{\"new\":[{\"id\":\"s1\"}]}}"));
         try (ActiveledgerClient client = client()) {
             LedgerResponse response = client.submitRaw("{\"a\":1}");
             assertEquals(1, response.getNewStreams().size());

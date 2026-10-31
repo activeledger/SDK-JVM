@@ -14,6 +14,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeoutOrNull
 
 /** Receives events on a subscription. Deprecated - see [subscribe]. */
 @Deprecated("Events are served on the node's host only; ActiveCore is deprecated. Run your own server-sent events listener on the node's host. Removed in the next major version.")
@@ -70,17 +71,34 @@ class ActiveledgerClient(baseUrl: String) : AutoCloseable {
     @Deprecated("Events are served on the node's host only; ActiveCore is deprecated. Run your own server-sent events listener on the node's host. Removed in the next major version.")
     @JvmOverloads
     fun subscribe(listener: EventListener, path: String = "/events"): Subscription {
+        val inListener = ThreadLocal<Boolean>()
         val job = scope.launch {
-            ledger.events.subscribe(path).collect { listener.onEvent(it) }
+            ledger.events.subscribe(path).collect {
+                inListener.set(true)
+                try {
+                    listener.onEvent(it)
+                } finally {
+                    inListener.remove()
+                }
+            }
         }
         return object : Subscription {
             override fun close() {
                 job.cancel()
+                // Wait, bounded, for the connection to be released. Not from
+                // inside the listener itself: it would be waiting on itself.
+                if (inListener.get() != true) {
+                    runBlocking { withTimeoutOrNull(CLOSE_WAIT_MS) { job.join() } }
+                }
             }
         }
     }
 
     override fun close() {
         scope.cancel()
+    }
+
+    private companion object {
+        const val CLOSE_WAIT_MS = 5_000L
     }
 }

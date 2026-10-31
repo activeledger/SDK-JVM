@@ -81,4 +81,35 @@ class KeyImportTest {
             KeyPair.fromKeys(KeyType.FALCON_512, good.exportPrivate(), good.exportPublic())
         }
     }
+
+    @Test
+    fun `a public key that belongs to a different private key is refused for every type`() {
+        for (type in KeyType.entries.filter { it != KeyType.RSA }) {
+            val a = KeyPair.generate(type)
+            val b = KeyPair.generate(type)
+            val e = assertFailsWith<IllegalArgumentException>(type.wire) {
+                KeyPair.fromKeys(type, a.exportPublic(), b.exportPrivate())
+            }
+            assertTrue(e.message!!.contains("does not belong"), e.message)
+        }
+    }
+
+    @Test
+    fun `a secp256k1 pair is checked across compressed and uncompressed forms`() {
+        val c = KeyPair.generateSecp256k1(compressed = false)
+        val restored = KeyPair.fromKeys(KeyType.SECP256K1, c.exportPublic(), c.exportPrivate())
+        assertEquals(c.exportPublic(), restored.exportPublic())
+        val other = KeyPair.generateSecp256k1(compressed = false)
+        assertFailsWith<IllegalArgumentException> {
+            KeyPair.fromKeys(KeyType.SECP256K1, c.exportPublic(), other.exportPrivate())
+        }
+    }
+
+    @Test
+    fun `a zero secp256k1 scalar is refused`() {
+        val good = KeyPair.generateSecp256k1()
+        assertFailsWith<IllegalArgumentException> {
+            KeyPair.fromKeys(KeyType.SECP256K1, good.exportPublic(), "0x" + "00".repeat(32))
+        }
+    }
 }
