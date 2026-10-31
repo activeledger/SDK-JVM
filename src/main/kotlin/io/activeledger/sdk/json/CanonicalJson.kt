@@ -74,6 +74,8 @@ data object JsonNull : JsonValue
 
 object CanonicalJson {
 
+    private const val MAX_EXACT_INTEGER = 9007199254740992.0 // 2^53
+
     fun stringify(value: JsonValue): String {
         val out = StringBuilder()
         write(value, out)
@@ -162,6 +164,10 @@ object CanonicalJson {
     fun jsNumber(value: Double): String {
         if (value == 0.0) return "0"          // covers -0.0, which JavaScript prints as "0"
         if (value < 0.0) return "-" + jsNumber(-value)
+
+        // Whole numbers up to 2^53 are exact in a Long and JavaScript prints
+        // them as plain digits, so the precision search below is not needed.
+        if (value <= MAX_EXACT_INTEGER && value == Math.floor(value)) return value.toLong().toString()
 
         var text = String.format(Locale.ROOT, "%.16e", value)
         for (precision in 0..16) {

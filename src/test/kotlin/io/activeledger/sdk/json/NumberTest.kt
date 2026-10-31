@@ -33,6 +33,16 @@ class NumberTest {
     }
 
     @Test
+    fun `whole numbers around the 2^53 boundary keep JavaScript digits`() {
+        assertEquals("9007199254740992", CanonicalJson.jsNumber(9007199254740992.0))
+        assertEquals("9007199254740994", CanonicalJson.jsNumber(9007199254740994.0))
+        assertEquals("9007199254740991", CanonicalJson.jsNumber(9007199254740991.0))
+        assertEquals("-9007199254740991", CanonicalJson.jsNumber(-9007199254740991.0))
+        assertEquals("1e+21", CanonicalJson.jsNumber(1e21))
+        assertEquals("100000000000000000000", CanonicalJson.jsNumber(1e20))
+    }
+
+    @Test
     fun `jsNumber matches the reference`() {
         vectors.forEach { (name, value, expected) ->
             assertEquals(expected, CanonicalJson.jsNumber(value), name)
