@@ -13,7 +13,10 @@ trap 'rm -rf "$work"' EXIT
 
 version="$(sed -n 's/^version = "\(.*\)"/\1/p' "$repo/build.gradle.kts")"
 
-(cd "$repo" && ./gradlew publishToMavenLocal --offline -q -Dmaven.repo.local="$work/m2")
+# Unsigned: a throwaway local repo has no use for a signature, and a machine
+# without the release key (CI) cannot make one.
+(cd "$repo" && ./gradlew publishToMavenLocal --offline -q -PRELEASE_SIGNING_ENABLED=false \
+  -Dmaven.repo.local="$work/m2")
 
 mkdir -p "$work/consumer/src/main/kotlin" "$work/consumer/src/main/java"
 cp "$here/consumer/Smoke.kt" "$work/consumer/src/main/kotlin/"
