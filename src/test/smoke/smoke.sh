@@ -15,7 +15,7 @@ version="$(sed -n 's/^version = "\(.*\)"/\1/p' "$repo/build.gradle.kts")"
 
 # Unsigned: a throwaway local repo has no use for a signature, and a machine
 # without the release key (CI) cannot make one.
-(cd "$repo" && ./gradlew publishToMavenLocal --offline -q -PRELEASE_SIGNING_ENABLED=false \
+(cd "$repo" && ./gradlew publishToMavenLocal --offline -q -x signMavenPublication \
   -Dmaven.repo.local="$work/m2")
 
 mkdir -p "$work/consumer/src/main/kotlin" "$work/consumer/src/main/java"
