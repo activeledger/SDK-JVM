@@ -112,6 +112,36 @@ class KeyPair private constructor(
         false
     }
 
+    /**
+     * Refuses a public key that is not the private key's partner.
+     *
+     * secp256k1: the public point is derived from the scalar and compared.
+     * Post-quantum: a sign-and-verify round trip of a fixed message. RSA has
+     * no signing here, so it is not checked.
+     */
+    private fun checkConsistent() {
+        val prv = privateBytes ?: return
+        val consistent = try {
+            when (type) {
+                KeyType.SECP256K1 -> {
+                    val d = BigInteger(1, prv)
+                    require(d.signum() > 0 && d < Secp256k1.domain.n) { "scalar out of range" }
+                    val point = Secp256k1.domain.g.multiply(d).normalize()
+                    val given = Secp256k1.domain.curve.decodePoint(publicBytes).normalize()
+                    point.equals(given)
+                }
+                KeyType.ML_DSA_65, KeyType.FALCON_512 -> {
+                    val probe = "activeledger key pair consistency check".toByteArray()
+                    verify(probe, sign(probe))
+                }
+                else -> true
+            }
+        } catch (e: Exception) {
+            false
+        }
+        require(consistent) { "${type.wire} public key does not belong to the private key" }
+    }
+
     private fun signMlDsa(message: ByteArray, prv: ByteArray): ByteArray {
         // The ledger's 4032-byte expanded key is accepted directly.
         val key = MLDSAPrivateKeyParameters(MLDSAParameters.ml_dsa_65, prv)
@@ -316,6 +346,10 @@ class KeyPair private constructor(
          * private key without a public key and the ledger's private key does
          * not contain one. The SDK's own key file carries both, so this costs
          * a caller nothing.
+         *
+         * Throws [IllegalArgumentException] if the two halves do not belong
+         * together: a mismatched pair would otherwise sign happily and be
+         * rejected by the ledger as 1220, far from the cause.
          */
         @JvmStatic
         fun fromKeys(type: KeyType, publicKey: String, privateKey: String): KeyPair {
@@ -323,7 +357,9 @@ class KeyPair private constructor(
             val prv = decode(type, privateKey, "private")
             checkPublic(type, pub)
             checkLength(type, prv, PRIVATE_BYTES[type], "private")
-            return KeyPair(type, pub, prv)
+            val pair = KeyPair(type, pub, prv)
+            pair.checkConsistent()
+            return pair
         }
 
         /**
