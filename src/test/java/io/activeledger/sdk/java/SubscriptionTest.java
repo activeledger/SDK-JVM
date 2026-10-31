@@ -122,4 +122,51 @@ class SubscriptionTest {
             subscription.close();
         }
     }
+
+    @Test
+    void closeWaitsForTheCollectionToFinish() throws Exception {
+        eventsToSend = "data: x\n\n";
+        CountDownLatch inListener = new CountDownLatch(1);
+        java.util.concurrent.atomic.AtomicBoolean finished = new java.util.concurrent.atomic.AtomicBoolean();
+        try (ActiveledgerClient client = client()) {
+            Subscription subscription = client.subscribe(e -> {
+                inListener.countDown();
+                try {
+                    Thread.sleep(500);
+                } catch (InterruptedException ignored) {
+                    // not expected
+                }
+                finished.set(true);
+            });
+            assertTrue(inListener.await(5, TimeUnit.SECONDS));
+            subscription.close();
+            assertTrue(finished.get(), "close() returned before the in-flight listener call finished");
+        }
+    }
+
+    @Test
+    void closingFromInsideTheListenerDoesNotWaitOnItself() throws Exception {
+        eventsToSend = "data: x\n\n";
+        java.util.concurrent.atomic.AtomicReference<Subscription> self = new java.util.concurrent.atomic.AtomicReference<>();
+        CountDownLatch closed = new CountDownLatch(1);
+        long[] tookMs = new long[1];
+        try (ActiveledgerClient client = client()) {
+            Subscription subscription = client.subscribe(e -> {
+                long start = System.nanoTime();
+                try {
+                    while (self.get() == null) {
+                        Thread.sleep(10);
+                    }
+                    self.get().close();
+                } catch (Exception ignored) {
+                    // not expected
+                }
+                tookMs[0] = (System.nanoTime() - start) / 1_000_000;
+                closed.countDown();
+            });
+            self.set(subscription);
+            assertTrue(closed.await(5, TimeUnit.SECONDS));
+            assertTrue(tookMs[0] < 2_000, "close() inside the listener took " + tookMs[0] + "ms");
+        }
+    }
 }

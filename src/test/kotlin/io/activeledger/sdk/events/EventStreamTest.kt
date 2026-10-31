@@ -115,4 +115,14 @@ class EventStreamTest {
         val events = withTimeout(5000) { ledger().events.subscribe().toList() }
         assertEquals("{\"url\":\"http://example.com\"}", events[0].data)
     }
+
+    // Only a single space after the colon is dropped; the rest is the value.
+    @Test
+    fun `keeps whitespace beyond the single leading space`() = runBlocking {
+        server.enqueue(sse("event:  spaced \nid:7\ndata:  two lead, trailing \n\n"))
+        val events = withTimeout(5000) { ledger().events.subscribe().toList() }
+        assertEquals(" two lead, trailing ", events[0].data)
+        assertEquals(" spaced ", events[0].name)
+        assertEquals("7", events[0].id)
+    }
 }

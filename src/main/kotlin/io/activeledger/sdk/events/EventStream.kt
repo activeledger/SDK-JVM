@@ -96,9 +96,9 @@ class EventStream internal constructor(private val connection: Connection) {
                             // these as events is a classic SSE bug, and heartbeats
                             // are frequent.
                             line.startsWith(":") -> Unit
-                            line.startsWith("event:") -> eventName = line.removePrefix("event:").trim()
-                            line.startsWith("id:") -> eventId = line.removePrefix("id:").trim()
-                            line.startsWith("data:") -> data.append(line.removePrefix("data:").trim()).append('\n')
+                            line.startsWith("event:") -> eventName = fieldValue(line, "event:")
+                            line.startsWith("id:") -> eventId = fieldValue(line, "id:")
+                            line.startsWith("data:") -> data.append(fieldValue(line, "data:")).append('\n')
                         }
                     }
                 }
@@ -114,4 +114,8 @@ class EventStream internal constructor(private val connection: Connection) {
             call.cancel()
         }
     }.flowOn(Dispatchers.IO)
+
+    // Per the SSE spec only a single leading space after the colon is dropped.
+    private fun fieldValue(line: String, prefix: String): String =
+        line.substring(prefix.length).removePrefix(" ")
 }
