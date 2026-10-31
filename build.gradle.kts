@@ -137,7 +137,11 @@ mavenPublishing {
 
     // Directs uploads to the modern Central Portal and signs artifacts
     publishToMavenCentral(com.vanniktech.maven.publish.SonatypeHost.CENTRAL_PORTAL)
-    signAllPublications()
+    // -PskipSigning=true is for the throwaway publication in
+    // src/test/smoke/smoke.sh; a release never sets it.
+    if (providers.gradleProperty("skipSigning").orNull != "true") {
+        signAllPublications()
+    }
 }
 
 // Maven Central is one release channel; GitHub releases are the other. The
