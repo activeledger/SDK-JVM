@@ -4,7 +4,7 @@ package io.activeledger.sdk.events
 
 import io.activeledger.sdk.Activeledger
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
@@ -142,12 +142,12 @@ class EventStreamFailureTest {
 
     // The stream is open and silent; cancelling the collector has to close
     // the connection even though the read is blocked. A raw socket node lets
-    // the test see the client hang up.
+    // the test see the client hang up: EOF or a reset on the server's read is
+    // the signal, so an IOException there is the expected outcome, not a failure.
     @Test
     fun `cancelling the collector closes a quiet connection`() = runBlocking {
         val node = java.net.ServerSocket(0)
         val hungUp = java.util.concurrent.CountDownLatch(1)
-        val delivered = java.util.concurrent.CountDownLatch(1)
         val acceptor = Thread {
             try {
                 node.accept().use { socket ->
@@ -159,25 +159,38 @@ class EventStreamFailureTest {
                             .toByteArray(),
                     )
                     socket.getOutputStream().flush()
-                    delivered.countDown()
                     while (input.read() != -1) { /* discard until the client leaves */ }
-                    hungUp.countDown()
                 }
             } catch (e: java.io.IOException) {
-                hungUp.countDown()
+                // A reset is the client leaving too.
             }
+            hungUp.countDown()
         }
         acceptor.isDaemon = true
         acceptor.start()
+
+        // Its own scope: once the collector is cancelled, whatever the dying
+        // connection throws is not the test's concern and must not escape into it.
+        val scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + Dispatchers.IO)
         try {
             val first = kotlinx.coroutines.CompletableDeferred<Unit>()
-            val job = launch(Dispatchers.IO) {
-                Activeledger("http://127.0.0.1:${node.localPort}").events.subscribe().collect { first.complete(Unit) }
+            val cancelled = java.util.concurrent.atomic.AtomicBoolean(false)
+            val failedBeforeCancel = java.util.concurrent.atomic.AtomicReference<Throwable?>(null)
+            val job = scope.launch {
+                try {
+                    Activeledger("http://127.0.0.1:${node.localPort}").events.subscribe().collect { first.complete(Unit) }
+                } catch (e: Throwable) {
+                    if (!cancelled.get()) failedBeforeCancel.set(e)
+                }
             }
             withTimeout(5000) { first.await() }
+            cancelled.set(true)
             job.cancel()
             assertTrue(hungUp.await(5, TimeUnit.SECONDS), "the client never closed the connection")
+            acceptor.join(5000)
+            assertEquals(null, failedBeforeCancel.get(), "the stream failed before it was cancelled")
         } finally {
+            scope.cancel()
             node.close()
         }
     }
