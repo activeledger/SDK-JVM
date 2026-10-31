@@ -39,12 +39,23 @@ class ConnectionTest {
     }
 
     @Test
-    fun `a response without streams or summary has none and is committed`() {
-        val r = LedgerResponse("{}")
-        assertEquals(emptyList(), r.newStreams)
-        assertEquals(emptyList(), r.errors)
-        assertEquals(emptyList(), r.responses())
+    fun `a response without a summary is not committed`() {
+        for (body in listOf("{}", """{"${'$'}streams":{"new":[]}}""", """{"${'$'}summary":[]}""", """{"${'$'}summary":"ok"}""")) {
+            val r = LedgerResponse(body)
+            assertEquals(false, r.committed, body)
+            assertTrue(r.errors.any { it.contains("summary") }, body)
+            assertEquals(emptyList(), r.responses(), body)
+        }
+    }
+
+    @Test
+    fun `a real success reply is committed`() {
+        val r = LedgerResponse(
+            """{"${'$'}umid":"u","${'$'}summary":{"total":1,"vote":1,"commit":1},"${'$'}streams":{"new":[{"id":"s"}],"updated":[]}}"""
+        )
         assertTrue(r.committed)
+        assertEquals(emptyList(), r.errors)
+        assertEquals(listOf("s"), r.newStreams)
     }
 
     // The ledger answers HTTP 200 for a rejected transaction, so success is
@@ -164,8 +175,8 @@ class ConnectionTest {
     }
 
     @Test
-    fun `a non-2xx status is not committed even with an empty object body`() {
-        server.enqueue(reply("{}").setResponseCode(502))
+    fun `a non-2xx status is not committed even with a success body`() {
+        server.enqueue(reply("""{"${'$'}summary":{"total":1,"vote":1,"commit":1}}""").setResponseCode(502))
         val r = runBlocking { connection().submitRaw("{}") }
         assertEquals(false, r.committed)
         assertTrue(r.errors.any { it.contains("502") }, r.errors.toString())

@@ -14,6 +14,7 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertNotNull
 import kotlin.test.assertNotSame
 import kotlin.test.assertSame
+import kotlin.test.assertTrue
 
 class ConnectionGetTest {
 
@@ -61,6 +62,13 @@ class ConnectionGetTest {
     fun `get of an empty body is the empty string`() = runBlocking {
         server.enqueue(MockResponse().setResponseCode(204))
         assertEquals("", Connection(base()).get("/nothing"))
+    }
+
+    @Test
+    fun `get of a non-2xx status is an IOException naming the status`() {
+        server.enqueue(MockResponse().setResponseCode(502).setBody("<html>Bad Gateway</html>"))
+        val e = assertFailsWith<IOException> { runBlocking { Connection(base()).get("/status") } }
+        assertTrue(e.message!!.contains("502"), e.message)
     }
 
     @Test

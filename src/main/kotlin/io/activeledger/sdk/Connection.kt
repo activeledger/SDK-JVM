@@ -10,14 +10,17 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import java.io.IOException
 import java.util.concurrent.TimeUnit
 
 /**
  * The ledger's reply to a submitted transaction.
  *
- * A reply that is not a JSON object (an empty body, an HTML error page from a
- * proxy, `null`, an array), or that came with a non-2xx HTTP status, is
- * reported as not committed with an entry in [errors]. The getters never throw.
+ * A reply is committed only if the HTTP status is 2xx, the body is a JSON
+ * object, it has a `$summary` object, and `$summary.errors` is absent or empty.
+ * Anything else (an empty body, `{}`, an HTML error page from a proxy, `null`,
+ * an array, a non-2xx status) is reported as not committed with an entry in
+ * [errors]. The getters never throw.
  */
 class LedgerResponse internal constructor(val raw: String, private val status: Int = 200) {
     private val root: JsonObject? by lazy {
@@ -47,14 +50,19 @@ class LedgerResponse internal constructor(val raw: String, private val status: I
      * Present and non-empty means the transaction did **not** commit. The
      * ledger answers HTTP 200 for a rejected transaction, so those arrive in
      * the body's `$summary`; a non-2xx status or a body that is not a JSON
-     * object adds an entry here as well, because neither is a commit.
+     * object, or one without a `$summary` object, adds an entry here as well,
+     * because none of those is a commit.
      */
     val errors: List<String>
         get() {
             val body = root
+            val summary = try {
+                body?.get("\$summary") as? JsonObject
+            } catch (e: RuntimeException) {
+                null
+            }
             val reported = try {
-                body?.getAsJsonObject("\$summary")
-                    ?.getAsJsonArray("errors")
+                summary?.getAsJsonArray("errors")
                     ?.map { it.asString }
                     ?: emptyList()
             } catch (e: RuntimeException) {
@@ -63,6 +71,7 @@ class LedgerResponse internal constructor(val raw: String, private val status: I
             val extra = ArrayList<String>()
             if (!httpOk) extra.add("HTTP $status")
             if (body == null) extra.add("response is not a JSON object")
+            else if (summary == null) extra.add("response has no \$summary")
             return reported + extra
         }
 
@@ -130,7 +139,11 @@ class Connection @JvmOverloads constructor(
 
     internal suspend fun get(path: String): String = withContext(Dispatchers.IO) {
         val request = Request.Builder().url(baseUrl.trimEnd('/') + path).get().build()
-        client.newCall(request).execute().use { it.body?.string().orEmpty() }
+        client.newCall(request).execute().use { response ->
+            val text = response.body?.string().orEmpty()
+            if (!response.isSuccessful) throw IOException("HTTP ${response.code} from GET $path: ${text.take(200)}")
+            text
+        }
     }
 
     internal fun url(path: String): String = baseUrl.trimEnd('/') + path

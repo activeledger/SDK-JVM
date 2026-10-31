@@ -39,7 +39,7 @@ public class SmokeJava {
         MockWebServer server = new MockWebServer();
         server.start();
         try (ActiveledgerClient client = new ActiveledgerClient(server.url("/").toString())) {
-            server.enqueue(new MockResponse().setBody("{\"$streams\":{\"new\":[{\"id\":\"stream-1\"}]}}"));
+            server.enqueue(new MockResponse().setBody("{\"$summary\":{\"total\":1,\"vote\":1,\"commit\":1},\"$streams\":{\"new\":[{\"id\":\"stream-1\"}]}}"));
             server.enqueue(new MockResponse().setBody("{\"$summary\":{\"errors\":[\"1220: Signature Incorrect\"]}}"));
 
             for (KeyPair key : keys) {
