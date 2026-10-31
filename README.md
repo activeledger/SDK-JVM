@@ -8,6 +8,8 @@
 
 # Activeledger SDK for JVM, Java and Android
 
+**Documentation:** [SDK guide](https://activeledger.github.io/activeledger/sdks/jvm/) | [All SDKs](https://activeledger.github.io/activeledger/sdks/) | [Activeledger guide](https://activeledger.github.io/activeledger/)
+
 Kotlin SDK for [Activeledger](https://github.com/activeledger/activeledger). Identities can be post-quantum (ML-DSA-65, Falcon-512) or classical (secp256k1).
 
 One artefact serves Kotlin, Java and Android. Replaces `SDK-Kotlin`, `SDK-Java` and `SDK-Android`, none of which supported post-quantum identities.
