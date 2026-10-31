@@ -24,3 +24,8 @@ jobs:
       # Includes the Android API-26 signature check, so a JDK API absent from
       # the floor fails here rather than on a user's phone.
       - run: ./gradlew build
+      # Compiles and runs a Kotlin and a Java consumer against the published
+      # artifact only, so a missing class or a broken POM fails here and not
+      # for the first user. Once, on the JDK its toolchain asks for.
+      - if: matrix.java == 17
+        run: src/test/smoke/smoke.sh
